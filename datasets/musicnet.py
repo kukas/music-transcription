@@ -41,7 +41,7 @@ def musicnet_datasets(musicnet_root, samplerate):
             annotation = process_labels_file(annotpath, max_time)
             annotated_audios.append(AnnotatedAudio(annotation, audio))
 
-        return Dataset(annotated_audios)
+        return annotated_audios
 
     test = load_musicnet_annotaudios("test")
     # train = load_musicnet_annotaudios("train")
