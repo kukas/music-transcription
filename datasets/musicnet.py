@@ -1,9 +1,10 @@
 import csv
 import os
+import numpy as np
 
 from intervaltree import IntervalTree
 
-from . import *
+from .dataset import Audio, Annotation, AnnotatedAudio
 
 def musicnet_datasets(musicnet_root, samplerate):
     def process_labels_file(path, max_time, hop=0.01):
