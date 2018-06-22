@@ -117,16 +117,14 @@ class AADataset(Dataset):
         samplerate = aa.audio.samplerate
         frame_width = aa.annotation.get_frame_width()*samplerate
 
-        window_sample_count = np.round(annotations_per_window*frame_width) + 2*context_width
+        window_sample_count = np.round(annotations_per_window*frame_width)
 
         data = []
 
         for aa in annotated_audios:
-            # zeros = np.zeros(context_width, dtype=np.float32)
-
             for i in range(len(aa.annotation.times)-annotations_per_window):
                 window_start_sample = np.floor(aa.annotation.times[i]*samplerate)
-                window_end_sample = np.floor(aa.annotation.times[i+annotations_per_window]*samplerate)
+                window_end_sample = window_start_sample + window_sample_count
 
                 audio_window_bounds = (int(window_start_sample-context_width), int(window_end_sample+context_width))
 
@@ -143,8 +141,39 @@ class AADataset(Dataset):
 
     def _create_batch(self, permutation):
         batch = Dataset._create_batch(self, permutation)
-        batch = np.array([{
-            "audio": b["annotaudio"].audio.samples[b["window_bounds"][0]:b["window_bounds"][1]],
-            "annotation": b["annotation"]
-            } for b in batch])
-        return batch
+        new_batch = []
+
+        # transforming the batch - add actual audio snippets according to window_bounds
+        for b in batch:
+            b0 = cut_start = b["window_bounds"][0]
+            b1 = cut_end = b["window_bounds"][1]
+
+            samples = b["annotaudio"].audio.samples
+            last_sample_index = len(samples) - 1
+
+            # padding the snippets with zeros when the context reaches outside the audio
+            cut_start_diff = 0
+            cut_end_diff = 0
+            if b0 < 0:
+                cut_start = 0
+                cut_start_diff = cut_start - b0
+            if b1 > last_sample_index:
+                cut_end = last_sample_index
+                cut_end_diff = b1 - last_sample_index
+
+            audio = samples[cut_start:cut_end]
+
+            if cut_start_diff:
+                zeros = np.zeros(cut_start_diff, dtype=np.float32)
+                audio = np.concatenate([zeros, audio])
+
+            if cut_end_diff:
+                zeros = np.zeros(cut_end_diff, dtype=np.float32)
+                audio = np.concatenate([zeros, audio])
+
+            new_batch.append({
+                "audio": audio,
+                "annotation": b["annotation"]
+                })
+
+        return new_batch
