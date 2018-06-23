@@ -45,7 +45,6 @@ def musicnet_datasets(musicnet_root, samplerate):
         return annotated_audios
 
     test = load_musicnet_annotaudios("test")
-    # train = load_musicnet_annotaudios("train")
+    train = load_musicnet_annotaudios("train")
 
-    # return test, train
-    return test
+    return test, train

@@ -17,18 +17,17 @@ class Audio:
     def __init__(self, path, uid):
         self.path = path
         self.uid = uid
-        self.samples = False
+        self.samples = []
         self.samplerate = 0
 
     def load_resampled_audio(self, samplerate):
-        # audio, samplerate = sf.read(self.path)
         resampled_path = self.path.replace(".wav", "_{}.wav".format(samplerate))
 
         if os.path.isfile(resampled_path):
-            audio, sr_orig = sf.read(resampled_path)
-            self.samples = audio.astype(np.float32)
+            audio, sr_orig = sf.read(resampled_path, dtype="int16")
+            self.samples = audio
             self.samplerate = samplerate
-            
+
             print(self.uid+"_"+str(samplerate), "{:.2f} min".format(self.get_duration()/60))
 
             assert sr_orig == samplerate
@@ -50,6 +49,8 @@ class Audio:
         pass
 
     def get_duration(self):
+        if self.samplerate == 0:
+            return 0
         return len(self.samples)/self.samplerate
 
 ''' Handles the common time-frequency annotation format. '''
@@ -100,31 +101,22 @@ class Dataset:
         self._new_permutation()
 
 class AADataset(Dataset):
-    def get_annotated_audio_windows(self, annotations_per_window, context_width):
-        if len(self.annotated_audios) == 0:
-            raise RuntimeError("The dataset is empty.")
-
-        aa = self.annotated_audios[0]
-
-        samplerate = aa.audio.samplerate
-        frame_width = aa.annotation.get_frame_width()
-
-        window_sample_count = annotations_per_window*frame_width + 2*context_width
-
     def __init__(self, annotated_audios, annotations_per_window, context_width, shuffle_batches=True):
         aa = annotated_audios[0]
 
-        samplerate = aa.audio.samplerate
-        frame_width = aa.annotation.get_frame_width()*samplerate
+        self.samplerate = aa.audio.samplerate
+        self.frame_width = aa.annotation.get_frame_width()*self.samplerate
 
-        window_sample_count = np.round(annotations_per_window*frame_width)
+        self.context_width = context_width
+        self.annotations_per_window = annotations_per_window
+        self.window_size = np.round(annotations_per_window*self.frame_width + 2*context_width)
 
         data = []
 
         for aa in annotated_audios:
             for i in range(len(aa.annotation.times)-annotations_per_window):
-                window_start_sample = np.floor(aa.annotation.times[i]*samplerate)
-                window_end_sample = window_start_sample + window_sample_count
+                window_start_sample = np.floor(aa.annotation.times[i]*self.samplerate)
+                window_end_sample = window_start_sample + self.window_size - 2*context_width
 
                 audio_window_bounds = (int(window_start_sample-context_width), int(window_end_sample+context_width))
 
@@ -148,7 +140,7 @@ class AADataset(Dataset):
             b0 = cut_start = b["window_bounds"][0]
             b1 = cut_end = b["window_bounds"][1]
 
-            samples = b["annotaudio"].audio.samples
+            samples = b["annotaudio"].audio.samples.astype(np.float32, order='C') / 32768.0
             last_sample_index = len(samples) - 1
 
             # padding the snippets with zeros when the context reaches outside the audio
