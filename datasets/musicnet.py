@@ -6,7 +6,7 @@ from intervaltree import IntervalTree
 
 from .dataset import Audio, Annotation, AnnotatedAudio
 
-def musicnet_datasets(musicnet_root, samplerate):
+def musicnet_datasets(musicnet_root, split_name, samplerate=16000):
     def process_labels_file(path, max_time, hop=0.01):
         midinotes = IntervalTree()
         with open(path, 'r') as f:
@@ -44,7 +44,6 @@ def musicnet_datasets(musicnet_root, samplerate):
 
         return annotated_audios
 
-    test = load_musicnet_annotaudios("test")
-    train = load_musicnet_annotaudios("train")
+    data = load_musicnet_annotaudios(split_name)
 
-    return test, train
+    return data

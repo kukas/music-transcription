@@ -135,13 +135,15 @@ class AADataset(Dataset):
         batch = Dataset._create_batch(self, permutation)
         new_batch = []
 
+        max_len = max([len(annot) for b in batch for annot in b["annotation"]])
+
         # transforming the batch - add actual audio snippets according to window_bounds
         for b in batch:
             b0 = cut_start = b["window_bounds"][0]
             b1 = cut_end = b["window_bounds"][1]
 
-            samples = b["annotaudio"].audio.samples.astype(np.float32, order='C') / 32768.0
-            last_sample_index = len(samples) - 1
+            samples_int16 = b["annotaudio"].audio.samples
+            last_sample_index = len(samples_int16) - 1
 
             # padding the snippets with zeros when the context reaches outside the audio
             cut_start_diff = 0
@@ -153,7 +155,8 @@ class AADataset(Dataset):
                 cut_end = last_sample_index
                 cut_end_diff = b1 - last_sample_index
 
-            audio = samples[cut_start:cut_end]
+            audio = samples_int16[cut_start:cut_end]
+            audio = audio.astype(np.float32, order='C') / 32768.0
 
             if cut_start_diff:
                 zeros = np.zeros(cut_start_diff, dtype=np.float32)
@@ -161,11 +164,14 @@ class AADataset(Dataset):
 
             if cut_end_diff:
                 zeros = np.zeros(cut_end_diff, dtype=np.float32)
-                audio = np.concatenate([zeros, audio])
+                audio = np.concatenate([audio, zeros])
+
+            # padding the annotations
+            annotation = [np.concatenate([annot, np.zeros(max_len - len(annot))]) for annot in b["annotation"]]
 
             new_batch.append({
                 "audio": audio,
-                "annotation": b["annotation"]
+                "annotation": annotation
                 })
 
         return new_batch
