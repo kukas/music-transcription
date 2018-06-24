@@ -25,14 +25,14 @@ def process_labels_file(path, max_time, hop=0.01):
 
 def musicnet_load_uids(musicnet_root, split_name, uids, samplerate=16000):
     annotated_audios = []
-    for uid in uids:
+    for i, uid in enumerate(uids):
         # prepare audio
         audiopath = os.path.join(musicnet_root, split_name+"_data", "{}.wav".format(uid))
         audio = Audio(audiopath, "musicnet_{}_{}".format(split_name, uid))
 
         audio.load_resampled_audio(samplerate)
         duration = audio.get_duration()
-        print(".", end="")
+        print(".", end=("" if (i+1) % 20 else "\n"))
         # print(uid, "{:.2f} min".format(duration/60))
 
         # prepare annotation
