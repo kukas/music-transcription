@@ -29,13 +29,18 @@ def musicnet_load_uids(musicnet_root, split_name, uids, samplerate=16000):
         # prepare audio
         audiopath = os.path.join(musicnet_root, split_name+"_data", "{}.wav".format(uid))
         audio = Audio(audiopath, "musicnet_{}_{}".format(split_name, uid))
+
         audio.load_resampled_audio(samplerate)
-        max_time = audio.get_duration()
+        duration = audio.get_duration()
+        print(".", end="")
+        # print(uid, "{:.2f} min".format(duration/60))
 
         # prepare annotation
         annotpath = os.path.join(musicnet_root, split_name+"_labels", "{}.csv".format(uid))
-        annotation = process_labels_file(annotpath, max_time)
+        annotation = process_labels_file(annotpath, duration)
         annotated_audios.append(AnnotatedAudio(annotation, audio))
+    
+    print(" OK")
 
     return annotated_audios
 
