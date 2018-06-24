@@ -10,6 +10,9 @@ class AnnotatedAudio:
         self.audio = audio
         self.annotation = annotation
 
+    def slice(self, start, end):
+        return AnnotatedAudio(self.annotation.slice(start, end), self.audio.slice(start, end))
+
 ''' Audio container
 Audio can be represented in different forms - as raw audio with various
 sampling rates or as spectrograms. '''
@@ -28,8 +31,6 @@ class Audio:
             self.samples = audio
             self.samplerate = samplerate
 
-            print(self.uid+"_"+str(samplerate), "{:.2f} min".format(self.get_duration()/60))
-
             assert sr_orig == samplerate
         else:
             print("resampling", self.uid)
@@ -45,13 +46,16 @@ class Audio:
             self.samples = audio_low
             self.samplerate = samplerate
 
-    def get_spectrogram(self):
-        pass
-
     def get_duration(self):
         if self.samplerate == 0:
             return 0
         return len(self.samples)/self.samplerate
+
+    def slice(self, start, end):
+        sliced = Audio(self.path, self.uid)
+        sliced.samplerate = self.samplerate
+        sliced.samples = self.samples[int(start*self.samplerate):int(end*self.samplerate)]
+        return sliced
 
 ''' Handles the common time-frequency annotation format. '''
 class Annotation:
@@ -66,6 +70,14 @@ class Annotation:
         if len(self.times) == 0:
             raise RuntimeError("The annotation is empty.")
         return self.times[1]-self.times[0]
+    
+    def slice(self, start, end):
+        framerate = 1/self.get_frame_width()
+        sliced_times = self.times[int(start*framerate):int(end*framerate)]
+        # time offset
+        sliced_times = sliced_times - sliced_times[0]
+        sliced_notes = self.notes[int(start*framerate):int(end*framerate)]
+        return Annotation(sliced_times, sliced_notes)
 
 class Dataset:
     def __init__(self, data, shuffle_batches=True):
@@ -102,6 +114,7 @@ class Dataset:
 
 class AADataset(Dataset):
     def __init__(self, annotated_audios, annotations_per_window, context_width, shuffle_batches=True):
+        self.annotated_audios = annotated_audios
         aa = annotated_audios[0]
 
         self.samplerate = aa.audio.samplerate
@@ -109,7 +122,7 @@ class AADataset(Dataset):
 
         self.context_width = context_width
         self.annotations_per_window = annotations_per_window
-        self.window_size = np.round(annotations_per_window*self.frame_width + 2*context_width)
+        self.window_size = int(np.round(annotations_per_window*self.frame_width + 2*context_width))
 
         data = []
 
@@ -122,6 +135,9 @@ class AADataset(Dataset):
 
                 window_annot = aa.annotation.notes[i:i+annotations_per_window]
 
+                if self.window_size > len(aa.audio.samples):
+                    raise RuntimeError("Window size is bigger than the audio.")
+
                 data.append({
                     "annotaudio": aa,
                     "window_bounds": audio_window_bounds,
@@ -130,6 +146,10 @@ class AADataset(Dataset):
 
 
         Dataset.__init__(self, data, shuffle_batches)
+
+    def all_samples(self):
+        samples = [aa.audio.samples for aa in self.annotated_audios]
+        return np.concatenate(samples)
 
     def _create_batch(self, permutation):
         batch = Dataset._create_batch(self, permutation)
