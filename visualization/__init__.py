@@ -1,7 +1,6 @@
 import librosa
 import librosa.display
 
-
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -22,7 +21,7 @@ def flatten(notesets):
     return indices, flatnotes
 
 def draw_notes(ref, est, style = "."):
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(12, 6))
     ax.set_ylim(0,128)
 
     ax.set(xlabel='frame', ylabel='midi note')
@@ -40,7 +39,24 @@ def draw_notes(ref, est, style = "."):
 
     legend = ax.legend()
 
-    # return fig
+    # suppress inline mode
+    plt.close()
+
+    return fig
+
+def fig2data(fig):
+    """
+    @brief Convert a Matplotlib figure to a 4D numpy array with RGBA channels and return it
+    @param fig a matplotlib figure
+    @return a numpy 3D array of RGBA values
+    """
+    # draw the renderer
+    fig.canvas.draw()
+ 
+    data = np.fromstring(fig.canvas.tostring_argb(), dtype=np.uint8, sep='')
+    data = data.reshape(fig.canvas.get_width_height()[::-1] + (4,))
+    data = np.roll(data, 3, axis=2)
+    return data
 
 def draw_spectrum(audio, samplerate): 
     fig, ax = plt.subplots()
