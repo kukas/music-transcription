@@ -171,6 +171,7 @@ class AADataset(Dataset):
 
             new_batch.append({
                 "audio": audio,
+                "annotation_ragged": b["annotation"],
                 "annotation": annotation
                 })
 

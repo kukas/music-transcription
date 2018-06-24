@@ -4,6 +4,7 @@ import numpy as np
 import tensorflow as tf
 
 import mir_eval
+mir_eval.multipitch.MIN_FREQ = 1
 
 class Network:
     def __init__(self, threads, seed=42):
@@ -26,8 +27,20 @@ class Network:
             self.is_training = tf.placeholder(tf.bool, [], name="is_training")
 
             self.ref_notes = tf.reduce_sum(tf.one_hot(self.annotations, self.note_range), axis=2)
+            # wrong_labels = 1-tf.reduce_sum(tf.one_hot(tf.zeros(tf.shape(self.annotations), dtype=tf.int32), self.note_range), axis=2)
+            dims = tf.shape(self.ref_notes)
+            self.ref_notes = tf.concat([tf.zeros([dims[0], dims[1], 1]), self.ref_notes[:,:,1:]], axis=2) # annotations are padded with zeros, so we manually remove this additional note
             
+            # create_model needs to provide these values:
+            self.est_notes = None
+            self.loss = None
+            self.training = None
+
             create_model(self, args)
+
+            assert self.est_notes != None
+            assert self.loss != None
+            assert self.training != None
 
             # self.est_notes
             ref_notes_b = tf.cast(self.ref_notes, tf.bool)
@@ -43,6 +56,8 @@ class Network:
             self.recall = safe_div(true_positive_sum, n_ref_sum)
             acc_denom = n_est_sum + n_ref_sum - true_positive_sum
             self.accuracy = safe_div(true_positive_sum, acc_denom)
+            
+            # self.precision = tf.Print(self.precision, [self.annotations, self.ref_notes, true_positive_sum, n_ref_sum, n_est_sum, ref_notes_b, est_notes_b], summarize=10000)
 
             summary_writer = tf.contrib.summary.create_file_writer(self.logdir, flush_millis=10 * 1000)
             self.summaries = {}
@@ -159,61 +174,86 @@ class Network:
             with summary_writer.as_default():
                 tf.contrib.summary.initialize(session=self.session, graph=self.session.graph)
 
-    def train(self, audio_slices, notes):
-        out = self.session.run([self.accuracy, self.loss, self.training, self.summaries["train"]],
-                         {self.window: audio_slices, self.annotations: notes, self.is_training: True})
-        return out[0], out[1]
-    def train_detailed(self, audio_slices, notes):
-        out = self.session.run([self.accuracy, self.loss, self.training, self.summaries["train"], self.summaries["train_detailed"]],
-                         {self.window: audio_slices, self.annotations: notes, self.is_training: True})
-        return out[0], out[1]
+    def _unpack_one(self, batch, key):
+        return [b[key] for b in batch]
+    def _unpack_batch(self, batch):
+        return self._unpack_one(batch, "audio"), self._unpack_one(batch, "annotation")
 
-    def evaluate(self, dataset, batch_size, hop_size=1):
+    def train(self, batch):
+        windows, annotations = self._unpack_batch(batch)
+
+        out = self.session.run([self.accuracy, self.loss, self.training, self.summaries["train"]],
+                         {self.window: windows, self.annotations: annotations, self.is_training: True})
+        return out[0], out[1]
+    def train_detailed(self, batch):
+        windows, annotations = self._unpack_batch(batch)
+        batch_annotations_ragged = self._unpack_one(batch, "annotation_ragged")
+
+        out = self.session.run([self.accuracy, self.loss, self.est_notes,
+            self.precision, self.recall, self.training, self.summaries["train"]],
+                         {self.window: windows, self.annotations: annotations, self.is_training: True})
+
+        # print(out[3], out[4], out[0])
+        # est_annotation = [[i for i, v in enumerate(est_notes_frame) if v == 1] for est_notes in out[2] for est_notes_frame in est_notes]
+        # ref_annotation = [est_notes_frame for est_notes in batch_annotations_ragged for est_notes_frame in est_notes]
+
+        # ref = np.array([mir_eval.util.midi_to_hz(np.array(notes)) for notes in ref_annotation])
+        # est = np.array([mir_eval.util.midi_to_hz(np.array(notes)) for notes in est_annotation])
+        # t = np.arange(0, len(ref_annotation))*0.01
+
+        # metrics = mir_eval.multipitch.metrics(t, ref, t, est)
+        # print(metrics)
+
+        return out[0], out[1]
+    
+    def evaluate(self, dataset, batch_size):
         dataset.reset()
         estimation = []
         reference = []
         loss = 0
         c = 0
         while not dataset.epoch_finished():
-            batch_windows, batch_notes = dataset.next_batch(batch_size, hop_size=hop_size)
-            pred_notes, batch_loss = self.session.run([self.predictions_whole, self.loss],
-                {self.window: batch_windows, self.annotations: batch_notes, self.is_training: False})
+            batch = dataset.next_batch(batch_size)
+            batch_windows, batch_annotations = self._unpack_batch(batch)
+            batch_annotations_ragged = self._unpack_one(batch, "annotation_ragged")
 
-            outer_size = (dataset.annotations_per_window - hop_size)/2
+            batch_est_notes, batch_loss = self.session.run([self.est_notes, self.loss],
+                {self.window: batch_windows, self.annotations: batch_annotations, self.is_training: False})
 
-            estimation.append(pred_notes[:,floor(outer_size):-ceil(outer_size)])
-            reference.append(batch_notes[:,floor(outer_size):-ceil(outer_size)])
+            est_annotation = [[i for i, v in enumerate(est_notes_frame) if v == 1] for est_notes in batch_est_notes for est_notes_frame in est_notes]
+            ref_annotation = [est_notes_frame for est_notes in batch_annotations_ragged for est_notes_frame in est_notes]
+
+            assert len(est_annotation) == len(ref_annotation)
+            estimation.append(est_annotation)
+            reference.append(ref_annotation)
 
             loss += batch_loss * len(batch_windows)
             c += len(batch_windows)
         loss /= c
 
-        ref = np.concatenate(reference).astype(np.int16)
-        est = np.concatenate(estimation).astype(np.int16)
-        ref_voicing = ref>0
-        est_voicing = est>0
-        ref_cent = ref*100
-        est_cent = est*100
-    
-        recall, false_alarm = mir_eval.melody.voicing_measures(ref_voicing, est_voicing)
-        raw_pitch = mir_eval.melody.raw_pitch_accuracy(ref_voicing, ref_cent, est_voicing, est_cent)
-        raw_chroma = mir_eval.melody.raw_chroma_accuracy(ref_voicing, ref_cent, est_voicing, est_cent)
-        overall_accuracy = mir_eval.melody.overall_accuracy(ref_voicing, ref_cent, est_voicing, est_cent)
+        ref = np.array([mir_eval.util.midi_to_hz(np.array(notes)) for batch in reference for notes in batch])
+        est = np.array([mir_eval.util.midi_to_hz(np.array(notes)) for batch in estimation for notes in batch])
+        t = np.arange(0, len(ref))*0.01
 
-        print("generating summaries")
-        self.session.run(self.summaries["test"], {
-            self.given_loss: loss,
-            self.given_accuracy: overall_accuracy,
-            self.given_recall: recall,
-            self.given_false_alarm: false_alarm,
-            self.given_raw_pitch: raw_pitch,
-            self.given_raw_chroma: raw_chroma,
-            self.given_notes_est: est,
-            self.given_notes_ref: ref
-        })
-        print("done")
+        assert len(ref) == len(est)
 
-        return overall_accuracy
+        metrics = mir_eval.multipitch.metrics(t, ref, t, est)
+        print("eval",metrics)
+
+        # print("generating summaries")
+        # self.session.run(self.summaries["test"], {
+        #     self.given_loss: loss,
+        #     self.given_accuracy: overall_accuracy,
+        #     self.given_recall: recall,
+        #     self.given_false_alarm: false_alarm,
+        #     self.given_raw_pitch: raw_pitch,
+        #     self.given_raw_chroma: raw_chroma,
+        #     self.given_notes_est: est,
+        #     self.given_notes_ref: ref
+        # })
+        # print("done")
+
+        return metrics[2]
 
     def predict(self, dataset, batch_size, skip=0, batches=None):
         labels = []
