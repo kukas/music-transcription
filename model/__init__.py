@@ -6,9 +6,10 @@ import tensorflow as tf
 import mir_eval
 mir_eval.multipitch.MIN_FREQ = 1
 
+import matplotlib
+import matplotlib.pyplot as plt
 import visualization as vis
 
-import datetime
 import time
 
 import inspect
@@ -19,7 +20,10 @@ class Network:
         # Create an empty graph and a session
         graph = tf.Graph()
         graph.seed = seed
-        self.session = tf.Session(graph = graph, config=tf.ConfigProto(inter_op_parallelism_threads=threads,
+
+        gpu_options = tf.GPUOptions(allow_growth=True)
+        self.session = tf.Session(graph = graph, config=tf.ConfigProto(gpu_options=gpu_options,
+                                                                       inter_op_parallelism_threads=threads,
                                                                        intra_op_parallelism_threads=threads))
 
     def construct(self, args, create_model, create_summaries = None):
@@ -34,7 +38,9 @@ class Network:
         with self.session.graph.as_default():
 
             # Inputs
-            self.window = tf.placeholder(tf.float32, [None, self.window_size], name="window")
+            self.window_int16 = tf.placeholder(tf.int16, [None, self.window_size], name="window")
+            self.window = tf.cast(self.window_int16, tf.float32)/32768.0
+
             self.annotations = tf.placeholder(tf.int32, [None, self.annotations_per_window, None], name="annotations")
             self.is_training = tf.placeholder(tf.bool, [], name="is_training")
 
@@ -145,15 +151,14 @@ class Network:
         windows, annotations = self._unpack_batch(batch)
 
         out = self.session.run([self.accuracy, self.loss, self.training, self.summaries["train"]],
-                         {self.window: windows, self.annotations: annotations, self.is_training: True})
+                         {self.window_int16: windows, self.annotations: annotations, self.is_training: True})
         return out[0], out[1]
     
-    def train(self, train_dataset, test_dataset, small_test_dataset, args):
+    def train(self, train_dataset, test_dataset, small_test_dataset, batch_size, epochs, eval_every_n_batches=3000, save_every_n_batches=20000):
         train_dataset.reset()
-        batch_size = args["batch_size"]
         b = 0
         timer = time.time()
-        for i in range(args["epochs"]):
+        for i in range(epochs):
             print("=== epoch", i+1, "===")
             while not train_dataset.epoch_finished():
                 batch = train_dataset.next_batch(batch_size)
@@ -165,21 +170,22 @@ class Network:
                 if b % 1000 == 0:
                     print("b {0}; t {1:.2f}; acc {2:.2f}; loss {3:.2f}".format(b, time.time() - timer, accuracy, loss))
                     timer = time.time()
-                if b % 3000 == 0:
-                    self.evaluate(test_dataset, batch_size)
+                if b % eval_every_n_batches == 0:
+                    accuracy = self.evaluate(test_dataset, batch_size)
                     self.evaluate(small_test_dataset, batch_size, visual_output=True)
                     # reference, estimation, loss = network.predict(small_test_dataset, 2)
                     # fig, ax = vis.draw_notes(reference, estimation, ".")
                     # plt.show()
                     print("epoch {}, batch {}, t {:.2f}, accuracy: {:.2f}".format(i+1, b, time.time() - timer, accuracy))
                     timer = time.time()
-                if b % 10000 == 0 and b >= 10000:
+                if b % save_every_n_batches == 0:
                     self.save()
                     print("saving, t {:.2f}".format(time.time()-timer))
                     timer = time.time()
+                
         print("=== done ===")
     
-    def evaluate(self, dataset, batch_size, visual_output=False):
+    def evaluate(self, dataset, batch_size, visual_output=False, print_detailed=False):
         reference, estimation, loss = self.predict(dataset, batch_size)
 
         ref = np.array([mir_eval.util.midi_to_hz(np.array(notes)) for notes in reference])
@@ -193,10 +199,31 @@ class Network:
         given_precision_c,given_recall_c,given_accuracy_c,
         given_e_sub_c,given_e_miss_c,given_e_fa_c,given_e_tot_c) = metrics
 
+        if print_detailed:
+            print("Precision", given_precision)
+            print("Recall", given_recall)
+            print("Accuracy", given_accuracy)
+            print("Substitution Error", given_e_sub)
+            print("Miss Error", given_e_miss)
+            print("False Alarm Error", given_e_fa)
+            print("Total Error", given_e_tot)
+            print("Chroma Precision", given_precision_c)
+            print("Chroma Recall", given_recall_c)
+            print("Chroma Accuracy", given_accuracy_c)
+            print("Chroma Substitution Error", given_e_sub_c)
+            print("Chroma Miss Error", given_e_miss_c)
+            print("Chroma False Alarm Error", given_e_fa_c)
+            print("Chroma Total Error", given_e_tot_c)
+
         # write evaluation metrics to tf summary
         if visual_output:
             fig = vis.draw_notes(reference, estimation)
             image1 = vis.fig2data(fig)
+            
+            # suppress inline mode
+            if not print_detailed:
+                plt.close()
+
             self.session.run(self.summaries["test_small"], {
                 self.image1: image1,
                 self.given_loss: loss,
@@ -238,7 +265,7 @@ class Network:
             batch_annotations_ragged = self._unpack_one(batch, "annotation_ragged")
 
             batch_est_notes, batch_loss = self.session.run([self.est_notes, self.loss],
-               {self.window: batch_windows, self.annotations: batch_annotations, self.is_training: False})
+               {self.window_int16: batch_windows, self.annotations: batch_annotations, self.is_training: False})
 
             est_annotation = [[i for i, v in enumerate(est_notes_frame) if v == 1] for est_notes in batch_est_notes for est_notes_frame in est_notes]
             ref_annotation = [est_notes_frame for est_notes in batch_annotations_ragged for est_notes_frame in est_notes]

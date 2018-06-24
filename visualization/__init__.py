@@ -39,9 +39,6 @@ def draw_notes(ref, est, style = "."):
 
     legend = ax.legend()
 
-    # suppress inline mode
-    plt.close()
-
     return fig
 
 def fig2data(fig):

@@ -176,7 +176,6 @@ class AADataset(Dataset):
                 cut_end_diff = b1 - last_sample_index
 
             audio = samples_int16[cut_start:cut_end]
-            audio = audio.astype(np.float32, order='C') / 32768.0
 
             if cut_start_diff:
                 zeros = np.zeros(cut_start_diff, dtype=np.float32)
