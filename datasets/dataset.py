@@ -126,26 +126,15 @@ class AADataset(Dataset):
 
         data = []
 
-        for aa in annotated_audios:
-            for i in range(len(aa.annotation.times)-annotations_per_window):
-                window_start_sample = np.floor(aa.annotation.times[i]*self.samplerate)
-                window_end_sample = window_start_sample + self.window_size - 2*context_width
+        for i, aa in enumerate(annotated_audios):
+            if self.window_size > len(aa.audio.samples):
+                raise RuntimeError("Window size is bigger than the audio.")
 
-                audio_window_bounds = (int(window_start_sample-context_width), int(window_end_sample+context_width))
-
-                window_annot = aa.annotation.notes[i:i+annotations_per_window]
-
-                if self.window_size > len(aa.audio.samples):
-                    raise RuntimeError("Window size is bigger than the audio.")
-
-                data.append({
-                    "annotaudio": aa,
-                    "window_bounds": audio_window_bounds,
-                    "annotation": window_annot
-                    })
+            for j in range(len(aa.annotation.times)-annotations_per_window):
+                data.append((i, j))
 
 
-        Dataset.__init__(self, data, shuffle_batches)
+        Dataset.__init__(self, np.array(data, dtype=np.int32), shuffle_batches)
 
     def all_samples(self):
         samples = [aa.audio.samples for aa in self.annotated_audios]
@@ -155,14 +144,23 @@ class AADataset(Dataset):
         batch = Dataset._create_batch(self, permutation)
         new_batch = []
 
-        max_len = max([len(annot) for b in batch for annot in b["annotation"]])
+        annotations = [self.annotated_audios[i].annotation.notes[j:j+self.annotations_per_window] for i,j in batch]
+
+        max_len = max([len(annot) for annots in annotations for annot in annots])
 
         # transforming the batch - add actual audio snippets according to window_bounds
-        for b in batch:
-            b0 = cut_start = b["window_bounds"][0]
-            b1 = cut_end = b["window_bounds"][1]
+        for i,j in batch:
+            aa = self.annotated_audios[i]
 
-            samples_int16 = b["annotaudio"].audio.samples
+            window_start_sample = np.floor(aa.annotation.times[j]*self.samplerate)
+            window_end_sample = window_start_sample + self.window_size - 2*self.context_width
+            
+            annotation_ragged = aa.annotation.notes[j:j+self.annotations_per_window]
+
+            b0 = cut_start = int(window_start_sample-self.context_width)
+            b1 = cut_end = int(window_end_sample+self.context_width)
+
+            samples_int16 = aa.audio.samples
             last_sample_index = len(samples_int16) - 1
 
             # padding the snippets with zeros when the context reaches outside the audio
@@ -186,11 +184,11 @@ class AADataset(Dataset):
                 audio = np.concatenate([audio, zeros])
 
             # padding the annotations
-            annotation = [np.concatenate([annot, np.zeros(max_len - len(annot))]) for annot in b["annotation"]]
+            annotation = [np.concatenate([annot, np.zeros(max_len - len(annot))]) for annot in annotation_ragged]
 
             new_batch.append({
                 "audio": audio,
-                "annotation_ragged": b["annotation"],
+                "annotation_ragged": annotation_ragged,
                 "annotation": annotation
                 })
 
