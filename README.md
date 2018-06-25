@@ -12,5 +12,30 @@ A small framework for conducting deep learning experiments for the [MIREX AMT ta
     - STFT and constant-Q spectrograms (using `librosa`)
 - Tensorflow model skeleton
     - Training, evaluation and inference functions
-    - Evaluation of the testing set using `mir_eval`, implementation of basic metrics in Tensorflow for training information
+    - Detailed evaluation summary in Tensorboard
+        - Evaluation of the testing set using `mir_eval`, implementation of basic metrics in Tensorflow for training information
+        - Visual qualitative example = piano roll of a transcription
     - Saving the model weights and topology
+
+## Usage
+The framework is intended for use with [Jupyter](http://jupyter.org/) but majority of the functions are usable also as standard modules. Only the `visualization` module might fail to run outside of interactive context.
+Examples can be found in this repository but the structure of the experiments stays the same:
+- import the modules
+- load data
+- create datasets
+- define a network topology
+- construct the network
+- train the network
+- optionally evaluate the network in the Jupyter notebook
+
+## Dependencies
+- `tensorflow`
+- `numpy`
+- `scipy`
+- `matplotlib`
+- `soundfile`
+- `resampy`
+- `intervaltree`
+- `csv`
+- `mir_eval`
+- `librosa`
