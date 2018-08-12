@@ -31,6 +31,9 @@ class Network:
         self.note_range = args["note_range"]
         self.annotations_per_window = args["annotations_per_window"]
         self.window_size = args["window_size"]
+        self.spectrogram_shape = None
+        if "spectrogram_shape" in args:
+            self.spectrogram_shape = args["spectrogram_shape"]
 
         # save the model function for easier reproducibility
         self.save_model_fnc(create_model)
@@ -40,6 +43,8 @@ class Network:
             # Inputs
             self.window_int16 = tf.placeholder(tf.int16, [None, self.window_size], name="window")
             self.window = tf.cast(self.window_int16, tf.float32)/32768.0
+            if self.spectrogram_shape is not None:
+                self.spectrogram = tf.placeholder(tf.float32, [None, self.spectrogram_shape[0], self.spectrogram_shape[1]], name="spectrogram")
 
             self.annotations = tf.placeholder(tf.int32, [None, self.annotations_per_window, None], name="annotations")
             self.is_training = tf.placeholder(tf.bool, [], name="is_training")
@@ -142,16 +147,32 @@ class Network:
                 tf.contrib.summary.initialize(session=self.session, graph=self.session.graph)
 
     def _unpack_one(self, batch, key):
-        return [b[key] for b in batch]
+        unpacked = []
+        for b in batch:
+            if b[key] is None:
+                return None
+            unpacked.append(b[key])
+        return unpacked
 
     def _unpack_batch(self, batch):
-        return self._unpack_one(batch, "audio"), self._unpack_one(batch, "annotation")
+        return self._unpack_one(batch, "audio"), self._unpack_one(batch, "spectrogram"), self._unpack_one(batch, "annotation")
+
+    def _prep_feed_dict(self, batch):
+        windows, spectrogram, annotations = self._unpack_batch(batch)
+
+        feed_dict = {self.annotations: annotations}
+        if windows is not None:
+            feed_dict[self.window_int16] = windows
+        if spectrogram is not None:
+            feed_dict[self.spectrogram] = spectrogram
+
+        return feed_dict
 
     def train_batch(self, batch):
-        windows, annotations = self._unpack_batch(batch)
+        feed_dict = self._prep_feed_dict(batch)
+        feed_dict[self.is_training] = True
 
-        out = self.session.run([self.accuracy, self.loss, self.training, self.summaries["train"]],
-                         {self.window_int16: windows, self.annotations: annotations, self.is_training: True})
+        out = self.session.run([self.accuracy, self.loss, self.training, self.summaries["train"]], feed_dict)
         return out[0], out[1]
     
     def train(self, train_dataset, test_dataset, small_test_dataset, batch_size, epochs, eval_every_n_batches=3000, save_every_n_batches=20000):
@@ -261,20 +282,21 @@ class Network:
         c = 0
         while not dataset.epoch_finished():
             batch = dataset.next_batch(batch_size)
-            batch_windows, batch_annotations = self._unpack_batch(batch)
+
+            feed_dict = self._prep_feed_dict(batch)
+            feed_dict[self.is_training] = False
+            
+            batch_est_notes, batch_loss = self.session.run([self.est_notes, self.loss], feed_dict)
+
             batch_annotations_ragged = self._unpack_one(batch, "annotation_ragged")
-
-            batch_est_notes, batch_loss = self.session.run([self.est_notes, self.loss],
-               {self.window_int16: batch_windows, self.annotations: batch_annotations, self.is_training: False})
-
             est_annotation = [[i for i, v in enumerate(est_notes_frame) if v == 1] for est_notes in batch_est_notes for est_notes_frame in est_notes]
             ref_annotation = [est_notes_frame for est_notes in batch_annotations_ragged for est_notes_frame in est_notes]
 
             estimation += est_annotation
             reference += ref_annotation
 
-            loss += batch_loss * len(batch_windows)
-            c += len(batch_windows)
+            loss += batch_loss * len(batch)
+            c += len(batch)
         loss /= c
 
         assert len(reference) == len(estimation)

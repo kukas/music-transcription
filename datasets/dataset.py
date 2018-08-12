@@ -21,7 +21,10 @@ class Audio:
         self.path = path
         self.uid = uid
         self.samples = []
+        self.samples_count = 0
         self.samplerate = 0
+        self.spectrogram_hop_size = None
+        self.spectrogram = None
 
     def load_resampled_audio(self, samplerate):
         resampled_path = self.path.replace(".wav", "_{}.wav".format(samplerate))
@@ -29,7 +32,6 @@ class Audio:
         if os.path.isfile(resampled_path):
             audio, sr_orig = sf.read(resampled_path, dtype="int16")
             self.samples = audio
-            self.samplerate = samplerate
 
             assert sr_orig == samplerate
         else:
@@ -44,17 +46,106 @@ class Audio:
             sf.write(resampled_path, audio_low.astype(np.float32), samplerate)
 
             self.samples = audio_low
-            self.samplerate = samplerate
+
+        self.samples_count = len(self.samples)
+        self.samplerate = samplerate
+    
+    def load_spectrogram(self, spec_function, spec_function_thumbprint, hop_size):
+        self.spectrogram_hop_size = hop_size
+        spec_path = self.path.replace(".wav", spec_function_thumbprint+".npy")
+        audio, samplerate = sf.read(self.path)
+
+        if os.path.isfile(spec_path):
+            spec = np.load(spec_path)
+        else:
+            spec = spec_function(audio, samplerate)
+            np.save(spec_path, spec)
+        
+        self.spectrogram = spec
+        self.samples_count = len(audio)
+        self.samplerate = samplerate
 
     def get_duration(self):
         if self.samplerate == 0:
             return 0
-        return len(self.samples)/self.samplerate
+        return self.samples_count/self.samplerate
+
+    def get_padded_audio(self, start_sample, end_sample):
+        if len(self.samples) == 0:
+            return None
+
+        cut_start = start_sample
+        cut_end = end_sample
+
+        last_sample_index = self.samples_count - 1
+
+        # padding the snippets with zeros when the context reaches outside the audio
+        cut_start_diff = 0
+        cut_end_diff = 0
+        if start_sample < 0:
+            cut_start = 0
+            cut_start_diff = cut_start - start_sample
+        if end_sample > last_sample_index:
+            cut_end = last_sample_index
+            cut_end_diff = end_sample - last_sample_index
+
+        audio = self.samples[cut_start:cut_end]
+
+        if cut_start_diff:
+            zeros = np.zeros(cut_start_diff, dtype=np.float32)
+            audio = np.concatenate([zeros, audio])
+
+        if cut_end_diff:
+            zeros = np.zeros(cut_end_diff, dtype=np.float32)
+            audio = np.concatenate([audio, zeros])
+        
+        return audio
+
+
+    def get_padded_spectrogram(self, start_sample, end_sample):
+        if self.spectrogram is None:
+            return None
+
+        cut_length = int((end_sample - start_sample)/self.spectrogram_hop_size)
+
+        cut_start = start_window = int(start_sample/self.spectrogram_hop_size)
+        cut_end = end_window = cut_start + cut_length
+
+        last_window_index = self.spectrogram.shape[1] - 1
+
+        # padding the snippets with zeros when the context reaches outside the audio
+        cut_start_diff = 0
+        cut_end_diff = 0
+        if start_window < 0:
+            cut_start = 0
+            cut_start_diff = cut_start - start_window
+        if end_window > last_window_index:
+            cut_end = last_window_index
+            cut_end_diff = end_window - last_window_index
+
+        spectrogram = self.spectrogram[:,cut_start:cut_end]
+
+        if cut_start_diff:
+            zeros = np.zeros(self.spectrogram.shape[:1]+(cut_start_diff,), dtype=self.spectrogram.dtype)
+            spectrogram = np.concatenate([zeros, spectrogram], axis=1)
+
+        if cut_end_diff:
+            zeros = np.zeros(self.spectrogram.shape[:1]+(cut_end_diff,), dtype=self.spectrogram.dtype)
+            spectrogram = np.concatenate([spectrogram, zeros], axis=1)
+        
+        return spectrogram
 
     def slice(self, start, end):
         sliced = Audio(self.path, self.uid)
         sliced.samplerate = self.samplerate
-        sliced.samples = self.samples[int(start*self.samplerate):int(end*self.samplerate)]
+        b0, b1 = int(start*self.samplerate), int(end*self.samplerate)
+        sliced.samples = self.samples[b0:b1]
+        sliced.samples_count = b1-b0
+
+        if self.spectrogram is not None:
+            sliced.spectrogram_hop_size = self.spectrogram_hop_size
+            sliced.spectrogram = self.spectrogram[:,int(b0/self.spectrogram_hop_size):int(b1/self.spectrogram_hop_size)]
+
         return sliced
 
 ''' Handles the common time-frequency annotation format. '''
@@ -118,7 +209,7 @@ class AADataset(Dataset):
         aa = annotated_audios[0]
 
         self.samplerate = aa.audio.samplerate
-        self.frame_width = aa.annotation.get_frame_width()*self.samplerate
+        self.frame_width = int(np.round(aa.annotation.get_frame_width()*self.samplerate))
 
         self.context_width = context_width
         self.annotations_per_window = annotations_per_window
@@ -127,7 +218,7 @@ class AADataset(Dataset):
         data = []
 
         for i, aa in enumerate(annotated_audios):
-            if self.window_size > len(aa.audio.samples):
+            if self.window_size > aa.audio.samples_count:
                 raise RuntimeError("Window size is bigger than the audio.")
 
             for j in range(len(aa.annotation.times)-annotations_per_window):
@@ -157,37 +248,18 @@ class AADataset(Dataset):
             
             annotation_ragged = aa.annotation.notes[j:j+self.annotations_per_window]
 
-            b0 = cut_start = int(window_start_sample-self.context_width)
-            b1 = cut_end = int(window_end_sample+self.context_width)
+            b0 = int(window_start_sample-self.context_width)
+            b1 = int(window_end_sample+self.context_width)
 
-            samples_int16 = aa.audio.samples
-            last_sample_index = len(samples_int16) - 1
-
-            # padding the snippets with zeros when the context reaches outside the audio
-            cut_start_diff = 0
-            cut_end_diff = 0
-            if b0 < 0:
-                cut_start = 0
-                cut_start_diff = cut_start - b0
-            if b1 > last_sample_index:
-                cut_end = last_sample_index
-                cut_end_diff = b1 - last_sample_index
-
-            audio = samples_int16[cut_start:cut_end]
-
-            if cut_start_diff:
-                zeros = np.zeros(cut_start_diff, dtype=np.float32)
-                audio = np.concatenate([zeros, audio])
-
-            if cut_end_diff:
-                zeros = np.zeros(cut_end_diff, dtype=np.float32)
-                audio = np.concatenate([audio, zeros])
+            audio = aa.audio.get_padded_audio(b0, b1)
+            spectrogram = aa.audio.get_padded_spectrogram(b0, b1)
 
             # padding the annotations
             annotation = [np.concatenate([annot, np.zeros(max_len - len(annot))]) for annot in annotation_ragged]
 
             new_batch.append({
                 "audio": audio,
+                "spectrogram": spectrogram,
                 "annotation_ragged": annotation_ragged,
                 "annotation": annotation
                 })
