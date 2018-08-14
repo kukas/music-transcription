@@ -1,12 +1,18 @@
 import csv
 import os
 import numpy as np
+import pickle
 
 from intervaltree import IntervalTree
 
 from .dataset import Audio, Annotation, AnnotatedAudio
 
 def process_labels_file(path, hop=0.01):
+    preprocessed_path = path+".npz"
+    if os.path.isfile(preprocessed_path):
+        times, notes = pickle.load(open(preprocessed_path, "rb"))
+        return Annotation(times, notes)
+
     midinotes = IntervalTree()
     with open(path, 'r') as f:
         reader = csv.DictReader(f, delimiter=',')
@@ -23,6 +29,10 @@ def process_labels_file(path, hop=0.01):
     max_time = max(midinotes)[1]
     times = np.arange(0, max_time, hop)
     notes = [[midinote[2][1] for midinote in midinotes[t]] for t in times]
+
+    # np.save(preprocessed_path, annot)
+    pickle.dump((times, notes), open(preprocessed_path,"wb"))
+
     return Annotation(times, notes)
 
 def musicnet_load_uids(musicnet_root, split_name, uids):
