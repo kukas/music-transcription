@@ -50,6 +50,8 @@ class Network:
             self.is_training = tf.placeholder(tf.bool, [], name="is_training")
 
             self.ref_notes = tf.reduce_sum(tf.one_hot(self.annotations, self.note_range), axis=2)
+            # sometimes there are identical notes in annotations (played by two different instruments)
+            self.ref_notes = tf.cast(tf.greater(self.ref_notes, 0), tf.float32)
             # annotations are padded with zeros, so we manually remove this additional note
             dims = tf.shape(self.ref_notes)
             self.ref_notes = tf.concat([tf.zeros([dims[0], dims[1], 1]), self.ref_notes[:,:,1:]], axis=2)
