@@ -8,6 +8,7 @@ A small framework for conducting deep learning experiments for the [MIREX AMT ta
 - Dataset handling
     - [MusicNet](https://homes.cs.washington.edu/~thickstn/musicnet.html) dataset loading and automatic resampling. Other datasets such as MIREX 2007 MultiF0, Bach10, Su, MedleyDB are not supported yet but should be easy to add.
     - Slicing of the dataset audio for creating small testing subsets.
+    - Automatic processing of a dataset - spectrogram precomputation and management
 - Visualization tools for examining the model output.
     - Piano roll for comparison between the _gold truth_ and _estimation_
     - Interactive audio output for Jupyter notebooks
