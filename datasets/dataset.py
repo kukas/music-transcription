@@ -3,6 +3,12 @@ import numpy as np
 import os
 from resampy import resample
 
+PROCESSED_FILES_PATH = "./processed"
+
+def check_processed_dir():
+    if not os.path.isdir(PROCESSED_FILES_PATH):
+        os.makedirs(PROCESSED_FILES_PATH)
+
 ''' It is useful to keep audio and its annotation together because we can apply
 transformations such as concatenation of training examples. '''
 class AnnotatedAudio:
@@ -27,7 +33,8 @@ class Audio:
         self.spectrogram = None
 
     def load_resampled_audio(self, samplerate):
-        resampled_path = self.path.replace(".wav", "_{}.wav".format(samplerate))
+        check_processed_dir()
+        resampled_path = os.path.join(PROCESSED_FILES_PATH, self.uid+"_{}.wav".format(samplerate))
 
         if os.path.isfile(resampled_path):
             audio, sr_orig = sf.read(resampled_path, dtype="int16")
@@ -52,7 +59,11 @@ class Audio:
     
     def load_spectrogram(self, spec_function, spec_function_thumbprint, hop_size):
         self.spectrogram_hop_size = hop_size
-        spec_path = self.path.replace(".wav", spec_function_thumbprint+".npy")
+
+        check_processed_dir()
+        spec_path = os.path.join(PROCESSED_FILES_PATH, self.uid+"_{}.npy".format(spec_function_thumbprint))
+
+        # spec_path = self.path.replace(".wav", spec_function_thumbprint+".npy")
         audio, samplerate = sf.read(self.path)
 
         if os.path.isfile(spec_path):
