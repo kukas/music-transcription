@@ -1,4 +1,13 @@
 .ipynb_checkpoints/
 __pycache__/
+processed/
 models/
 models-old/
+models-old2/
+datasets/MDB-melody-synth/
+datasets/MDB-mf0-synth/
+datasets/MedleyDB/
+datasets/Orchset/
+datasets/adc2004/
+datasets/mirex05/
+datasets/musicnet/
