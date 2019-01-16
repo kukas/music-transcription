@@ -80,7 +80,7 @@ class Network:
             with summary_writer.as_default():
                 tf.contrib.summary.initialize(session=self.session, graph=self.session.graph)
 
-    def _summaries(self):
+    def _summaries(self, args, summary_writer):
         raise NotImplementedError()
 
     def _unpack_one(self, batch, key):
@@ -112,7 +112,7 @@ class Network:
         out = self.session.run([self.accuracy, self.loss, self.training, self.summaries["train"]], feed_dict)
         return out[0], out[1]
     
-    def train(self, train_dataset, test_dataset, small_test_dataset, batch_size, epochs, eval_every_n_batches=3000, save_every_n_batches=20000):
+    def train(self, train_dataset, test_dataset, small_test_dataset, batch_size, epochs, eval_small_every_n_batches=3000, eval_every_n_batches=10000, save_every_n_batches=20000):
         train_dataset.reset()
         b = 0
         timer = time.time()
@@ -128,13 +128,17 @@ class Network:
                 if b % 1000 == 0:
                     print("b {0}; t {1:.2f}; acc {2:.2f}; loss {3:.2f}".format(b, time.time() - timer, accuracy, loss))
                     timer = time.time()
-                if b % eval_every_n_batches == 0:
-                    accuracy = self.evaluate(test_dataset, batch_size)
-                    self.evaluate(small_test_dataset, batch_size, visual_output=True)
+                if b % eval_small_every_n_batches == 0:
+                    oa, rpa, vr = self.evaluate(small_test_dataset, batch_size, visual_output=True)
                     # reference, estimation, loss = network.predict(small_test_dataset, 2)
                     # fig, ax = vis.draw_notes(reference, estimation, ".")
                     # plt.show()
-                    print("epoch {}, batch {}, t {:.2f}, accuracy: {:.2f}".format(i+1, b, time.time() - timer, accuracy))
+                    print("small_test: t {:.2f}, OA: {:.2f}, RPA: {:.2f}, VR: {:.2f}".format(time.time() - timer, oa, rpa, vr))
+                    timer = time.time()
+                if b % eval_every_n_batches == 0:
+                    oa, rpa, vr = self.evaluate(test_dataset, batch_size)
+                    self.evaluate(small_test_dataset, batch_size, visual_output=True)
+                    print("test: t {:.2f}, OA: {:.2f}, RPA: {:.2f}, VR: {:.2f}".format(time.time() - timer, oa, rpa, vr))
                     timer = time.time()
                 if b % save_every_n_batches == 0:
                     self.save()
@@ -174,7 +178,7 @@ class Network:
         assert len(reference) == len(estimation)
 
         return reference, estimation, loss
-    
+
     def save_model_fnc(self, create_model):
         plaintext = inspect.getsource(create_model)
         if not os.path.exists(self.logdir): os.mkdir(self.logdir)
@@ -325,3 +329,113 @@ class NetworkMultif0(Network):
             })
 
         return given_accuracy
+
+class NetworkMelody(Network):
+    def _summaries(self, args, summary_writer):
+        # batch metrics
+        with tf.name_scope("metrics"):
+            ref_notes_b = tf.cast(self.ref_notes, tf.bool)
+            est_notes_b = tf.cast(self.est_notes, tf.bool)
+            true_positive_sum = tf.count_nonzero(tf.logical_and(ref_notes_b, est_notes_b))
+            n_ref_sum = tf.count_nonzero(ref_notes_b)
+            n_est_sum = tf.count_nonzero(est_notes_b)
+
+            def safe_div(numerator, denominator):
+                return tf.cond(denominator > 0, lambda: numerator/denominator, lambda: tf.constant(0, dtype=tf.float64))
+
+            self.precision = safe_div(true_positive_sum, n_est_sum)
+            self.recall = safe_div(true_positive_sum, n_ref_sum)
+            acc_denom = n_est_sum + n_ref_sum - true_positive_sum
+            self.accuracy = safe_div(true_positive_sum, acc_denom)
+
+        self.summaries = {}
+        with summary_writer.as_default(), tf.contrib.summary.record_summaries_every_n_global_steps(200):
+            self.summaries["train"] = [tf.contrib.summary.scalar("train/loss", self.loss),
+                                        tf.contrib.summary.scalar("train/precision", self.precision),
+                                        tf.contrib.summary.scalar("train/recall", self.recall),
+                                        tf.contrib.summary.scalar("train/accuracy", self.accuracy), ]
+
+        with summary_writer.as_default(), tf.contrib.summary.always_record_summaries():
+            self.given_loss = tf.placeholder(tf.float32, [], name="given_loss")
+            self.given_vr = tf.placeholder(tf.float32, [], name="given_vr")
+            self.given_vfa = tf.placeholder(tf.float32, [], name="given_vfa")
+            self.given_rpa = tf.placeholder(tf.float32, [], name="given_rpa")
+            self.given_rca = tf.placeholder(tf.float32, [], name="given_rca")
+            self.given_oa = tf.placeholder(tf.float32, [], name="given_oa")
+
+            self.image1 = tf.placeholder(tf.uint8, [None, None, 4], name="image1")
+            image1 = tf.expand_dims(self.image1, 0)
+
+            self.summaries["test_small"] = [tf.contrib.summary.image("test_small/image1", image1),
+                                            tf.contrib.summary.scalar("test_small/loss", self.given_loss),
+                                            tf.contrib.summary.scalar("test_small/voicing_recall", self.given_vr),
+                                            tf.contrib.summary.scalar("test_small/voicing_false_alarm", self.given_vfa),
+                                            tf.contrib.summary.scalar("test_small/raw_pitch_accuracy", self.given_rpa),
+                                            tf.contrib.summary.scalar("test_small/raw_chroma_accuracy", self.given_rca),
+                                            tf.contrib.summary.scalar("test_small/overall_accuracy", self.given_oa),
+                                            ]
+
+            self.summaries["test"] = [tf.contrib.summary.scalar("test/loss", self.given_loss),
+                                        tf.contrib.summary.scalar("test/voicing_recall", self.given_vr),
+                                        tf.contrib.summary.scalar("test/voicing_false_alarm", self.given_vfa),
+                                        tf.contrib.summary.scalar("test/raw_pitch_accuracy", self.given_rpa),
+                                        tf.contrib.summary.scalar("test/raw_chroma_accuracy", self.given_rca),
+                                        tf.contrib.summary.scalar("test/overall_accuracy", self.given_oa),
+                                        ]
+
+
+    def evaluate(self, dataset, batch_size, visual_output=False, print_detailed=False):
+        reference, estimation, loss = self.predict(dataset, batch_size)
+        # tohle je čirý zlo, přepsat tak, aby to nebylo čirý zlo pls
+        ref_notes = np.array(reference)[:, 0]
+        est_notes = np.array(estimation)[:, 0]
+
+        ref = np.array([mir_eval.util.midi_to_hz(np.array(notes)) for notes in ref_notes])
+        est = np.array([mir_eval.util.midi_to_hz(np.array(notes)) for notes in est_notes])
+
+        ref[ref_notes==0] = 0
+        est[est_notes==0] = 0
+        # print(ref, est)
+
+        t = np.arange(0, len(ref))*0.01
+        
+        metrics = mir_eval.melody.evaluate(t, ref, t, est)
+        # unpack metrics
+
+        if print_detailed:
+            print('Voicing Recall', metrics['Voicing Recall'])
+            print('Voicing False Alarm', metrics['Voicing False Alarm'])
+            print('Raw Pitch Accuracy', metrics['Raw Pitch Accuracy'])
+            print('Raw Chroma Accuracy', metrics['Raw Chroma Accuracy'])
+            print('Overall Accuracy', metrics['Overall Accuracy'])
+
+        # write evaluation metrics to tf summary
+        if visual_output:
+            fig = vis.draw_notes(reference, estimation)
+            image1 = vis.fig2data(fig)
+
+            # suppress inline mode
+            if not print_detailed:
+                plt.close()
+
+            self.session.run(self.summaries["test_small"], {
+                self.image1: image1,
+                self.given_loss: loss,
+                self.given_vr: metrics['Voicing Recall'],
+                self.given_vfa: metrics['Voicing False Alarm'],
+                self.given_rpa: metrics['Raw Pitch Accuracy'],
+                self.given_rca: metrics['Raw Chroma Accuracy'],
+                self.given_oa: metrics['Overall Accuracy'],
+            })
+        else:
+            self.session.run(self.summaries["test"], {
+                self.given_loss: loss,
+                # mir_eval summary
+                self.given_vr: metrics['Voicing Recall'],
+                self.given_vfa: metrics['Voicing False Alarm'],
+                self.given_rpa: metrics['Raw Pitch Accuracy'],
+                self.given_rca: metrics['Raw Chroma Accuracy'],
+                self.given_oa: metrics['Overall Accuracy'],
+            })
+
+        return metrics['Overall Accuracy'], metrics['Raw Pitch Accuracy'], metrics['Voicing Recall']

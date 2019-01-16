@@ -1,22 +1,25 @@
 import os
 import mir_eval
+import numpy as np
 
 from .common import safe_hz_to_midi
 from .dataset import AnnotatedAudio, Audio, Annotation, Dataset, AADataset
 
 def load_medleydb_melody_dataset(name, dataset_audio_path, dataset_annot_path, annot_extension=".csv"):
-    uids = [f[:-4] for f in os.listdir(dataset_annot_path) if f.endswith(annot_extension)]
+    uids = [f[:-len(annot_extension)] for f in os.listdir(dataset_annot_path) if f.endswith(annot_extension)]
 
     annotated_audios = []
     for i, uid in enumerate(uids):
         # prepare audio
-        audiopath = os.path.join(dataset_audio_path, uid, "{}.wav".format(uid))
+        audiopath = os.path.join(dataset_audio_path, uid, "{}_MIX.wav".format(uid))
         audio = Audio(audiopath, name+"_"+uid)
 
         # prepare annotation
         annotpath = os.path.join(dataset_annot_path, uid+annot_extension)
         times, freqs = mir_eval.io.load_time_series(annotpath, delimiter=",")
         notes = safe_hz_to_midi(freqs)
+        notes = np.expand_dims(notes, axis=1)
+
         annotation = Annotation(times, notes)
 
         annotated_audios.append(AnnotatedAudio(annotation, audio))
@@ -25,8 +28,24 @@ def load_medleydb_melody_dataset(name, dataset_audio_path, dataset_annot_path, a
     
     return annotated_audios
 
-def dataset(dataset_root):
+def dataset(dataset_root, split=None):
     dataset_audio_path = os.path.join(dataset_root, "Audio")
     dataset_annot_path = os.path.join(dataset_root, "Annotations", "Melody_Annotations", "MELODY2")
+    mdb = "MDB"
+    all_annotated_audios = load_medleydb_melody_dataset(mdb, dataset_audio_path, dataset_annot_path, annot_extension="_MELODY2.csv")
+    if split:
+        split_data = {}
+        # prepare arrays
+        for split_name in split.keys():
+            split_data[split_name] = []
 
-    return load_medleydb_melody_dataset("MDB", dataset_audio_path, dataset_annot_path, annot_extension=".csv")
+        # split the data
+        for aa in all_annotated_audios:
+            for split_name, split_uids in split.items():
+                track_name = aa.audio.uid[len(mdb)+1:]
+                if track_name in split_uids:
+                    split_data[split_name].append(aa)
+                    break
+        return split_data
+    else:
+        return all_annotated_audios
