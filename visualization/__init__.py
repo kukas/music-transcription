@@ -20,18 +20,19 @@ def flatten(notesets):
     flatnotes = [n for notes in notesets for n in notes]
     return indices, flatnotes
 
-def draw_notes(ref, est, style = "."):
+def draw_notes(ref, est, style = ".", title = None):
     fig, ax = plt.subplots(figsize=(12, 6))
     ax.set_ylim(0,128)
-
+    if title:
+        ax.set_title(title)
     ax.set(xlabel='frame', ylabel='midi note')
 
     # ref = np.array(ref, dtype=np.float16)
     # est = np.array(est, dtype=np.float16)
     
-    indices_correct, correct = flatten([[n for n in fest if n in fref] for fref, fest in zip(ref, est)])
-    indices_incorrect, incorrect = flatten([[n for n in fest if n not in fref] for fref, fest in zip(ref, est)])
-    indices_ref_rest, ref_rest = flatten([[n for n in fref if n not in fest] for fref, fest in zip(ref, est)])
+    indices_correct, correct = flatten([[n_est for n_est in fest if any([abs(n_est - n_ref) < 0.5 for n_ref in fref])] for fref, fest in zip(ref, est)])
+    indices_incorrect, incorrect = flatten([[n_est for n_est in fest if all([abs(n_est - n_ref) >= 0.5 for n_ref in fref])] for fref, fest in zip(ref, est)])
+    indices_ref_rest, ref_rest = flatten([[n_ref for n_ref in fref if all([abs(n_est - n_ref) >= 0.5 for n_est in fest])] for fref, fest in zip(ref, est)])
 
     ax.plot(indices_ref_rest, ref_rest, style, color="#222222", label="REF")
     ax.plot(indices_incorrect, incorrect, style, color="#ff300e", label="EST incorrect")
