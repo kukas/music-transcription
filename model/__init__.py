@@ -411,7 +411,14 @@ class NetworkMelody(Network):
 
         # write evaluation metrics to tf summary
         if visual_output:
-            fig = vis.draw_notes(reference, estimation)
+            title = "OA: {:.2f}, RPA: {:.2f}, RCA: {:.2f}, VR: {:.2f}, VFA: {:.2f}".format(
+                metrics['Overall Accuracy'],
+                metrics['Raw Pitch Accuracy'],
+                metrics['Raw Chroma Accuracy'],
+                metrics['Voicing Recall'],
+                metrics['Voicing False Alarm']
+                )
+            fig = vis.draw_notes(reference, estimation, title=title)
             image1 = vis.fig2data(fig)
 
             # suppress inline mode
