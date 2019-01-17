@@ -215,7 +215,7 @@ class Dataset:
         self._new_permutation()
 
 class AADataset(Dataset):
-    def __init__(self, annotated_audios, annotations_per_window, context_width, shuffle_batches=True):
+    def __init__(self, annotated_audios, annotations_per_window, context_width, shuffle_batches=True, overlap_windows=False):
         self.annotated_audios = annotated_audios
         aa = annotated_audios[0]
 
@@ -228,13 +228,17 @@ class AADataset(Dataset):
 
         data = []
 
+        self.total_duration = 0
+
         for i, aa in enumerate(annotated_audios):
             if self.window_size > aa.audio.samples_count:
                 raise RuntimeError("Window size is bigger than the audio.")
 
-            for j in range(len(aa.annotation.times)-annotations_per_window):
+            step = 1 if overlap_windows else annotations_per_window
+            for j in range(0, len(aa.annotation.times)-annotations_per_window, step):
                 data.append((i, j))
 
+            self.total_duration += aa.annotation.times[-1]
 
         Dataset.__init__(self, np.array(data, dtype=np.int32), shuffle_batches)
 
