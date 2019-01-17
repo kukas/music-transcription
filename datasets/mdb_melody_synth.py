@@ -19,6 +19,7 @@ def load_mdb_melody_synth_melody_dataset(name, dataset_audio_path, dataset_annot
         annotpath = annotpath[0]
         times, freqs = mir_eval.io.load_time_series(annotpath, delimiter=",")
         notes = safe_hz_to_midi(freqs)
+        notes = np.expand_dims(notes, axis=1)
         annotation = Annotation(times, notes)
 
         annotated_audios.append(AnnotatedAudio(annotation, audio))
