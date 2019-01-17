@@ -32,7 +32,7 @@ def process_labels_file(path, hop=0.01):
 
     pickle.dump((times, notes), open(preprocessed_path,"wb"))
 
-    return Annotation(times, notes)
+    return Annotation(times, notes=notes)
 
 def musicnet_load_uids(musicnet_root, split_name, uids):
     annotated_audios = []

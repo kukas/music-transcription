@@ -2,7 +2,7 @@ import os
 import mir_eval
 import numpy as np
 
-from .common import safe_hz_to_midi
+from .common import melody_to_multif0
 from .dataset import AnnotatedAudio, Audio, Annotation, Dataset, AADataset
 
 def load_medleydb_melody_dataset(name, dataset_audio_path, dataset_annot_path, annot_extension=".csv"):
@@ -17,10 +17,12 @@ def load_medleydb_melody_dataset(name, dataset_audio_path, dataset_annot_path, a
         # prepare annotation
         annotpath = os.path.join(dataset_annot_path, uid+annot_extension)
         times, freqs = mir_eval.io.load_time_series(annotpath, delimiter=",")
-        notes = safe_hz_to_midi(freqs)
-        notes = np.expand_dims(notes, axis=1)
+        
+        # minioptimalizace, ale doopravdy by se to mělo udělat líp
+        notes = mir_eval.util.hz_to_midi(freqs)
+        notes[freqs==0] = 0
 
-        annotation = Annotation(times, notes)
+        annotation = Annotation(times, melody_to_multif0(freqs), melody_to_multif0(notes))
 
         annotated_audios.append(AnnotatedAudio(annotation, audio))
         print(".", end=("" if (i+1) % 20 else "\n"))

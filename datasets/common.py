@@ -17,10 +17,8 @@ def load_mirex_melody_dataset(name, dataset_audio_path, dataset_annot_path, anno
         # prepare annotation
         annotpath = os.path.join(dataset_annot_path, uid+annot_extension)
         times, freqs = mir_eval.io.load_time_series(annotpath)
-        notes = safe_hz_to_midi(freqs)
-        notes = np.expand_dims(notes, axis=1)
 
-        annotation = Annotation(times, notes)
+        annotation = Annotation(times, melody_to_multif0(freqs))
 
         annotated_audios.append(AnnotatedAudio(annotation, audio))
         print(".", end=("" if (i+1) % 20 else "\n"))
@@ -28,11 +26,8 @@ def load_mirex_melody_dataset(name, dataset_audio_path, dataset_annot_path, anno
     
     return annotated_audios
 
-def safe_hz_to_midi(freqs):
-    freqs = np.array(freqs)
-    zeros = freqs==0
-    freqs[zeros] = 1
-    notes = mir_eval.util.hz_to_midi(freqs)
+def melody_to_multif0(values):
+    return [[x] if x > 0 else [] for x in values]
 
-    notes[zeros] = 0
-    return notes
+def multif0_to_melody(values):
+    return [x[0] if len(x) > 0 else 0 for x in values]

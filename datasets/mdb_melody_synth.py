@@ -2,7 +2,7 @@ import os
 import mir_eval
 from glob import glob
 
-from .common import safe_hz_to_midi
+from .common import melody_to_multif0
 from .dataset import AnnotatedAudio, Audio, Annotation, Dataset, AADataset
 
 def load_mdb_melody_synth_melody_dataset(name, dataset_audio_path, dataset_annot_path, annot_extension=".csv"):
@@ -18,9 +18,8 @@ def load_mdb_melody_synth_melody_dataset(name, dataset_audio_path, dataset_annot
         annotpath = glob(os.path.join(dataset_annot_path, uid+"_STEM*"))
         annotpath = annotpath[0]
         times, freqs = mir_eval.io.load_time_series(annotpath, delimiter=",")
-        notes = safe_hz_to_midi(freqs)
-        notes = np.expand_dims(notes, axis=1)
-        annotation = Annotation(times, notes)
+
+        annotation = Annotation(times, melody_to_multif0(freqs))
 
         annotated_audios.append(AnnotatedAudio(annotation, audio))
         print(".", end=("" if (i+1) % 20 else "\n"))

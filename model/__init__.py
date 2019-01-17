@@ -15,6 +15,9 @@ import time
 import inspect
 import os
 
+import datasets
+import pandas
+
 class Network:
     def __init__(self, threads, seed=42):
         # Create an empty graph and a session
@@ -29,8 +32,13 @@ class Network:
     def construct(self, args, create_model, create_summaries = None):
         self.logdir = args["logdir"]
         self.note_range = args["note_range"]
+
+        self.samplerate = args["samplerate"]
         self.annotations_per_window = args["annotations_per_window"]
-        self.window_size = args["window_size"]
+        self.frame_width = args["frame_width"]
+        self.context_width = args["context_width"]
+        self.window_size = self.annotations_per_window*self.frame_width + 2*self.context_width
+
         self.spectrogram_shape = None
         if "spectrogram_shape" in args:
             self.spectrogram_shape = args["spectrogram_shape"]
@@ -48,6 +56,7 @@ class Network:
             self.annotations = tf.placeholder(tf.int32, [None, self.annotations_per_window, None], name="annotations")
             self.is_training = tf.placeholder(tf.bool, [], name="is_training")
 
+            # lowpriority TODO: použít booleanmask, abych pak nemusel odstraňovat ty nulové anotace
             self.ref_notes = tf.reduce_sum(tf.one_hot(self.annotations, self.note_range), axis=2)
             # sometimes there are identical notes in annotations (played by two different instruments)
             self.ref_notes = tf.cast(tf.greater(self.ref_notes, 0), tf.float32)
@@ -86,7 +95,7 @@ class Network:
     def _unpack_one(self, batch, key):
         unpacked = []
         for b in batch:
-            if b[key] is None:
+            if key not in b or b[key] is None:
                 return None
             unpacked.append(b[key])
         return unpacked
@@ -97,9 +106,15 @@ class Network:
     def _prep_feed_dict(self, batch):
         windows, spectrogram, annotations = self._unpack_batch(batch)
 
-        feed_dict = {self.annotations: annotations}
+        feed_dict = {}
+        if annotations is not None:
+            # TODO změnit na float
+            annotations = np.round(annotations)
+            feed_dict[self.annotations] = annotations
+
         if windows is not None:
             feed_dict[self.window_int16] = windows
+
         if spectrogram is not None:
             feed_dict[self.spectrogram] = spectrogram
 
@@ -129,15 +144,14 @@ class Network:
                     print("b {0}; t {1:.2f}; acc {2:.2f}; loss {3:.2f}".format(b, time.time() - timer, accuracy, loss))
                     timer = time.time()
                 if b % eval_small_every_n_batches == 0:
-                    oa, rpa, vr = self.evaluate(small_test_dataset, batch_size, visual_output=True)
+                    oa, rpa, vr = self.evaluate(small_test_dataset.annotated_audios, batch_size, dataset_name="test_small", visual_output=True)
                     # reference, estimation, loss = network.predict(small_test_dataset, 2)
                     # fig, ax = vis.draw_notes(reference, estimation, ".")
                     # plt.show()
                     print("small_test: t {:.2f}, OA: {:.2f}, RPA: {:.2f}, VR: {:.2f}".format(time.time() - timer, oa, rpa, vr))
                     timer = time.time()
                 if b % eval_every_n_batches == 0:
-                    oa, rpa, vr = self.evaluate(test_dataset, batch_size)
-                    self.evaluate(small_test_dataset, batch_size, visual_output=True)
+                    oa, rpa, vr = self.evaluate(test_dataset.annotated_audios, batch_size, dataset_name="test")
                     print("test: t {:.2f}, OA: {:.2f}, RPA: {:.2f}, VR: {:.2f}".format(time.time() - timer, oa, rpa, vr))
                     timer = time.time()
                 if b % save_every_n_batches == 0:
@@ -150,34 +164,52 @@ class Network:
     def evaluate(self):
         raise NotImplementedError()
 
-    def predict(self, dataset, batch_size):
-        dataset.reset()
+    def predict(self, audio, batch_size):
+        assert audio.samplerate == self.samplerate
+        audio_iterator = audio.iterator(self.annotations_per_window * self.frame_width, self.context_width)
+
+        # audio_dataset = tf.data.Dataset.from_generator(audio_iterator, (tf.int16, tf.float32)).batch(batch_size)
+        # iterator = audio_dataset.make_initializable_iterator()
+        # sess.run(iterator.initializer, feed_dict={self.is_training: False})
+
         estimation = []
-        reference = []
-        loss = 0
-        c = 0
-        while not dataset.epoch_finished():
-            batch = dataset.next_batch(batch_size)
+        batch = []
+        for audio, spectrogram in audio_iterator:
+            if len(batch) < 32:
+                batch.append({
+                    "audio": audio,
+                    "spectrogram": spectrogram
+                })
+                continue
+            # ====
+            batch.append({
+                "audio": audio,
+                "spectrogram": spectrogram
+            })
+            # ====
 
             feed_dict = self._prep_feed_dict(batch)
             feed_dict[self.is_training] = False
-            
-            batch_est_notes, batch_loss = self.session.run([self.est_notes, self.loss], feed_dict)
 
-            batch_annotations_ragged = self._unpack_one(batch, "annotation_ragged")
+            batch_est_notes = self.session.run(self.est_notes, feed_dict)
             est_annotation = [[i for i, v in enumerate(est_notes_frame) if v == 1] for est_notes in batch_est_notes for est_notes_frame in est_notes]
-            ref_annotation = [est_notes_frame for est_notes in batch_annotations_ragged for est_notes_frame in est_notes]
 
             estimation += est_annotation
-            reference += ref_annotation
 
-            loss += batch_loss * len(batch)
-            c += len(batch)
-        loss /= c
+            batch = []
+        
+        # ====
+        if len(batch) > 0:
+            feed_dict = self._prep_feed_dict(batch)
+            feed_dict[self.is_training] = False
 
-        assert len(reference) == len(estimation)
+            batch_est_notes = self.session.run(self.est_notes, feed_dict)
+            est_annotation = [[i for i, v in enumerate(est_notes_frame) if v == 1] for est_notes in batch_est_notes for est_notes_frame in est_notes]
 
-        return reference, estimation, loss
+            estimation += est_annotation
+        # ====
+
+        return estimation
 
     def save_model_fnc(self, create_model):
         plaintext = inspect.getsource(create_model)
@@ -334,11 +366,12 @@ class NetworkMelody(Network):
     def _summaries(self, args, summary_writer):
         # batch metrics
         with tf.name_scope("metrics"):
-            ref_notes_b = tf.cast(self.ref_notes, tf.bool)
-            est_notes_b = tf.cast(self.est_notes, tf.bool)
-            true_positive_sum = tf.count_nonzero(tf.logical_and(ref_notes_b, est_notes_b))
-            n_ref_sum = tf.count_nonzero(ref_notes_b)
-            n_est_sum = tf.count_nonzero(est_notes_b)
+            # TODO: opravit, pořád nefunguje
+            # ref_notes_b = tf.cast(self.ref_notes, tf.bool)
+            # est_notes_b = tf.cast(self.est_notes, tf.bool)
+            true_positive_sum = tf.count_nonzero(tf.equal(self.ref_notes, self.est_notes))
+            n_ref_sum = tf.count_nonzero(self.ref_notes != 0)
+            n_est_sum = tf.count_nonzero(self.est_notes != 0)
 
             def safe_div(numerator, denominator):
                 return tf.cond(denominator > 0, lambda: numerator/denominator, lambda: tf.constant(0, dtype=tf.float64))
@@ -356,7 +389,8 @@ class NetworkMelody(Network):
                                         tf.contrib.summary.scalar("train/accuracy", self.accuracy), ]
 
         with summary_writer.as_default(), tf.contrib.summary.always_record_summaries():
-            self.given_loss = tf.placeholder(tf.float32, [], name="given_loss")
+            # TODO vrátit given loss, případně pomocí metrics.mean
+            # self.given_loss = tf.placeholder(tf.float32, [], name="given_loss")
             self.given_vr = tf.placeholder(tf.float32, [], name="given_vr")
             self.given_vfa = tf.placeholder(tf.float32, [], name="given_vfa")
             self.given_rpa = tf.placeholder(tf.float32, [], name="given_rpa")
@@ -367,7 +401,7 @@ class NetworkMelody(Network):
             image1 = tf.expand_dims(self.image1, 0)
 
             self.summaries["test_small"] = [tf.contrib.summary.image("test_small/image1", image1),
-                                            tf.contrib.summary.scalar("test_small/loss", self.given_loss),
+                                            # tf.contrib.summary.scalar("test_small/loss", self.given_loss),
                                             tf.contrib.summary.scalar("test_small/voicing_recall", self.given_vr),
                                             tf.contrib.summary.scalar("test_small/voicing_false_alarm", self.given_vfa),
                                             tf.contrib.summary.scalar("test_small/raw_pitch_accuracy", self.given_rpa),
@@ -375,7 +409,8 @@ class NetworkMelody(Network):
                                             tf.contrib.summary.scalar("test_small/overall_accuracy", self.given_oa),
                                             ]
 
-            self.summaries["test"] = [tf.contrib.summary.scalar("test/loss", self.given_loss),
+            self.summaries["test"] = [
+                                        # tf.contrib.summary.scalar("test/loss", self.given_loss),
                                         tf.contrib.summary.scalar("test/voicing_recall", self.given_vr),
                                         tf.contrib.summary.scalar("test/voicing_false_alarm", self.given_vfa),
                                         tf.contrib.summary.scalar("test/raw_pitch_accuracy", self.given_rpa),
@@ -384,32 +419,41 @@ class NetworkMelody(Network):
                                         ]
 
 
-    def evaluate(self, dataset, batch_size, visual_output=False, print_detailed=False):
-        reference, estimation, loss = self.predict(dataset, batch_size)
-        # tohle je čirý zlo, přepsat tak, aby to nebylo čirý zlo pls
-        ref_notes = np.array(reference)[:, 0]
-        est_notes = np.array(estimation)[:, 0]
+    def evaluate(self, annotated_audios, batch_size, dataset_name=None, visual_output=False, print_detailed=False):
+        all_metrics = []
+        reference = []
+        estimation = []
+        for aa in annotated_audios:
+            est_notes = self.predict(aa.audio, batch_size)
+            est_freq = [mir_eval.util.midi_to_hz(np.array(notes_frame)) for notes_frame in est_notes]
+            est_freq = np.array(datasets.common.multif0_to_melody(est_freq))
 
-        ref = np.array([mir_eval.util.midi_to_hz(np.array(notes)) for notes in ref_notes])
-        est = np.array([mir_eval.util.midi_to_hz(np.array(notes)) for notes in est_notes])
+            # TODO přepsat duration na property ?
+            est_time = np.arange(0, aa.audio.get_duration(), self.frame_width/self.samplerate)
 
-        ref[ref_notes==0] = 0
-        est[est_notes==0] = 0
-        # print(ref, est)
+            ref_time = np.array(aa.annotation.times)
+            ref_freq = np.array(datasets.common.multif0_to_melody(aa.annotation.freqs))
+            metrics = mir_eval.melody.evaluate(ref_time, ref_freq, est_time, est_freq)
+            metrics["Track"] = aa.audio.uid
+            all_metrics.append(metrics)
 
-        t = np.arange(0, len(ref))*0.01
-        
-        metrics = mir_eval.melody.evaluate(t, ref, t, est)
-        # unpack metrics
+            reference += list(aa.annotation.notes)
+            estimation += est_notes
+
+        metrics = pandas.DataFrame(all_metrics).mean()
 
         if print_detailed:
-            print('Voicing Recall', metrics['Voicing Recall'])
-            print('Voicing False Alarm', metrics['Voicing False Alarm'])
-            print('Raw Pitch Accuracy', metrics['Raw Pitch Accuracy'])
-            print('Raw Chroma Accuracy', metrics['Raw Chroma Accuracy'])
-            print('Overall Accuracy', metrics['Overall Accuracy'])
+            print(metrics)
 
         # write evaluation metrics to tf summary
+        summaries = {
+            self.given_vr: metrics['Voicing Recall'],
+            self.given_vfa: metrics['Voicing False Alarm'],
+            self.given_rpa: metrics['Raw Pitch Accuracy'],
+            self.given_rca: metrics['Raw Chroma Accuracy'],
+            self.given_oa: metrics['Overall Accuracy'],
+        }
+
         if visual_output:
             title = "OA: {:.2f}, RPA: {:.2f}, RCA: {:.2f}, VR: {:.2f}, VFA: {:.2f}".format(
                 metrics['Overall Accuracy'],
@@ -419,30 +463,13 @@ class NetworkMelody(Network):
                 metrics['Voicing False Alarm']
                 )
             fig = vis.draw_notes(reference, estimation, title=title)
-            image1 = vis.fig2data(fig)
+            summaries[self.image1] = vis.fig2data(fig)
 
             # suppress inline mode
             if not print_detailed:
                 plt.close()
 
-            self.session.run(self.summaries["test_small"], {
-                self.image1: image1,
-                self.given_loss: loss,
-                self.given_vr: metrics['Voicing Recall'],
-                self.given_vfa: metrics['Voicing False Alarm'],
-                self.given_rpa: metrics['Raw Pitch Accuracy'],
-                self.given_rca: metrics['Raw Chroma Accuracy'],
-                self.given_oa: metrics['Overall Accuracy'],
-            })
-        else:
-            self.session.run(self.summaries["test"], {
-                self.given_loss: loss,
-                # mir_eval summary
-                self.given_vr: metrics['Voicing Recall'],
-                self.given_vfa: metrics['Voicing False Alarm'],
-                self.given_rpa: metrics['Raw Pitch Accuracy'],
-                self.given_rca: metrics['Raw Chroma Accuracy'],
-                self.given_oa: metrics['Overall Accuracy'],
-            })
+        if dataset_name is not None:
+            self.session.run(self.summaries[dataset_name], summaries)
 
         return metrics['Overall Accuracy'], metrics['Raw Pitch Accuracy'], metrics['Voicing Recall']

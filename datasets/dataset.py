@@ -2,6 +2,7 @@ import soundfile as sf
 import numpy as np
 import os
 from resampy import resample
+import librosa
 
 PROCESSED_FILES_PATH = "./processed"
 
@@ -158,15 +159,33 @@ class Audio:
             sliced.spectrogram = self.spectrogram[:,int(b0/self.spectrogram_hop_size):int(b1/self.spectrogram_hop_size)]
 
         return sliced
+    
+    def get_window_at_sample(self, window_start_sample, inner_window_size, context_width):
+        window_end_sample = window_start_sample + inner_window_size
+        
+        b0 = int(window_start_sample-context_width)
+        b1 = int(window_end_sample+context_width)
+
+        return self.get_padded_audio(b0, b1), self.get_padded_spectrogram(b0, b1)
+
+    def iterator(self, inner_window_size, context_width):
+        for sample_index in range(0, self.samples_count, inner_window_size):
+            yield self.get_window_at_sample(sample_index, inner_window_size, context_width)
 
 ''' Handles the common time-frequency annotation format. '''
 class Annotation:
-    def __init__(self, times, notes):
-        self.times = np.array(times)
-        self.notes = np.array(notes)
+    def __init__(self, times, freqs=None, notes=None):
+        assert not (freqs is None and notes is None)
 
-    def get_notes(self):
-        return self.times, self.notes
+        self.times = np.array(times)
+        self.freqs = freqs
+        self.notes = notes
+
+        if freqs is None:
+            self.freqs = [librosa.core.midi_to_hz(np.array(notes_frame)) for notes_frame in notes]
+
+        if notes is None:
+            self.notes = [librosa.core.hz_to_midi(np.array(freqs_frame)) for freqs_frame in freqs]
 
     def get_frame_width(self):
         if len(self.times) == 0:
@@ -175,11 +194,13 @@ class Annotation:
     
     def slice(self, start, end):
         framerate = 1/self.get_frame_width()
-        sliced_times = self.times[int(start*framerate):int(end*framerate)]
+        b0, b1 = int(start*framerate), int(end*framerate)
+        sliced_times = self.times[b0:b1]
         # time offset
         sliced_times = sliced_times - sliced_times[0]
-        sliced_notes = self.notes[int(start*framerate):int(end*framerate)]
-        return Annotation(sliced_times, sliced_notes)
+        sliced_freqs = self.freqs[b0:b1]
+        sliced_notes = self.notes[b0:b1]
+        return Annotation(sliced_times, sliced_freqs, sliced_notes)
 
 class Dataset:
     def __init__(self, data, shuffle_batches=True):
@@ -215,7 +236,7 @@ class Dataset:
         self._new_permutation()
 
 class AADataset(Dataset):
-    def __init__(self, annotated_audios, annotations_per_window, context_width, shuffle_batches=True, overlap_windows=False):
+    def __init__(self, annotated_audios, annotations_per_window, context_width, shuffle_batches=True):
         self.annotated_audios = annotated_audios
         aa = annotated_audios[0]
 
@@ -224,7 +245,9 @@ class AADataset(Dataset):
 
         self.context_width = context_width
         self.annotations_per_window = annotations_per_window
-        self.window_size = int(np.round(annotations_per_window*self.frame_width + 2*context_width))
+        # todo: přejmenovat na window_width?
+        self.inner_window_size = annotations_per_window*self.frame_width
+        self.window_size = self.inner_window_size + 2*context_width
 
         data = []
 
@@ -234,8 +257,7 @@ class AADataset(Dataset):
             if self.window_size > aa.audio.samples_count:
                 raise RuntimeError("Window size is bigger than the audio.")
 
-            step = 1 if overlap_windows else annotations_per_window
-            for j in range(0, len(aa.annotation.times)-annotations_per_window, step):
+            for j in range(0, len(aa.annotation.times)-annotations_per_window, annotations_per_window):
                 data.append((i, j))
 
             self.total_duration += aa.annotation.times[-1]
@@ -258,19 +280,13 @@ class AADataset(Dataset):
         for i,j in batch:
             aa = self.annotated_audios[i]
 
-            window_start_sample = np.floor(aa.annotation.times[j]*self.samplerate)
-            window_end_sample = window_start_sample + self.window_size - 2*self.context_width
-            
+            # annotation window
             annotation_ragged = aa.annotation.notes[j:j+self.annotations_per_window]
-
-            b0 = int(window_start_sample-self.context_width)
-            b1 = int(window_end_sample+self.context_width)
-
-            audio = aa.audio.get_padded_audio(b0, b1)
-            spectrogram = aa.audio.get_padded_spectrogram(b0, b1)
-
             # padding the annotations
             annotation = [np.concatenate([annot, np.zeros(max_len - len(annot))]) for annot in annotation_ragged]
+
+            window_start_sample = np.floor(aa.annotation.times[j]*self.samplerate)
+            audio, spectrogram = aa.audio.get_window_at_sample(window_start_sample, self.inner_window_size, self.context_width)
 
             new_batch.append({
                 "audio": audio,
@@ -280,3 +296,4 @@ class AADataset(Dataset):
                 })
 
         return new_batch
+
