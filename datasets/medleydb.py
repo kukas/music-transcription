@@ -3,7 +3,7 @@ import mir_eval
 import numpy as np
 
 from .common import melody_to_multif0
-from .dataset import AnnotatedAudio, Audio, Annotation, Dataset, AADataset
+from .dataset import AnnotatedAudio, Audio, Annotation
 
 def load_medleydb_melody_dataset(name, dataset_audio_path, dataset_annot_path, annot_extension=".csv"):
     uids = [f[:-len(annot_extension)] for f in os.listdir(dataset_annot_path) if f.endswith(annot_extension)]

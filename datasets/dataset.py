@@ -3,6 +3,7 @@ import numpy as np
 import os
 from resampy import resample
 import librosa
+import tensorflow as tf
 
 PROCESSED_FILES_PATH = "./processed"
 
@@ -186,6 +187,8 @@ class Annotation:
 
         if notes is None:
             self.notes = [librosa.core.hz_to_midi(np.array(freqs_frame)) for freqs_frame in freqs]
+        
+        self.max_polyphony = np.max([len(notes_frame) for notes_frame in self.notes])
 
     def get_frame_width(self):
         if len(self.times) == 0:
@@ -202,98 +205,63 @@ class Annotation:
         sliced_notes = self.notes[b0:b1]
         return Annotation(sliced_times, sliced_freqs, sliced_notes)
 
-class Dataset:
-    def __init__(self, data, shuffle_batches=True):
-        self.data = data
-        self._shuffle_batches = shuffle_batches
-        self._new_permutation()
-
-    def _new_permutation(self):
-        if self._shuffle_batches:
-            self._permutation = np.random.permutation(len(self.data))
-        else:
-            self._permutation = np.arange(len(self.data))
-    
-    def all_data(self):
-        return self._create_batch(np.arange(len(self.data)))
-
-    def next_batch(self, batch_size):
-        batch_size = min(batch_size, len(self._permutation))
-        batch_perm, self._permutation = self._permutation[:batch_size], self._permutation[batch_size:]
-        return self._create_batch(batch_perm)
-
-    def epoch_finished(self):
-        if len(self._permutation) == 0:
-            self._new_permutation()
-            return True
-        return False
-    
-    def _create_batch(self, permutation):
-        batch = np.array([self.data[i] for i in permutation])
-        return batch
-    
-    def reset(self):
-        self._new_permutation()
-
-class AADataset(Dataset):
-    def __init__(self, annotated_audios, annotations_per_window, context_width, shuffle_batches=True):
-        self.annotated_audios = annotated_audios
-        aa = annotated_audios[0]
+class AADataset:
+    def __init__(self, _annotated_audios, args, shuffle=None):
+        self._annotated_audios = _annotated_audios
+        aa = _annotated_audios[0]
 
         self.samplerate = aa.audio.samplerate
         self.frame_width = int(np.round(aa.annotation.get_frame_width()*self.samplerate))
 
-        self.context_width = context_width
-        self.annotations_per_window = annotations_per_window
+        self.context_width = args["context_width"]
+        self.annotations_per_window = args["annotations_per_window"]
         # todo: přejmenovat na window_width?
-        self.inner_window_size = annotations_per_window*self.frame_width
-        self.window_size = self.inner_window_size + 2*context_width
-
-        data = []
+        self.inner_window_size = self.annotations_per_window*self.frame_width
+        self.window_size = self.inner_window_size + 2*self.context_width
 
         self.total_duration = 0
+        for aa in self._annotated_audios:
+            self.total_duration += aa.annotation.times[-1]
+        
+        output_types, output_shapes = zip(*[
+            (tf.int16,   tf.TensorShape([self.window_size])),
+            (tf.int32,   tf.TensorShape([self.annotations_per_window, None])),
+            (tf.float32, tf.TensorShape([self.annotations_per_window])),
+            (tf.string,  None),
+        ])
+        dataset = tf.data.Dataset.from_generator(self.iterator, output_types, output_shapes)
 
-        for i, aa in enumerate(annotated_audios):
+        if shuffle is not None:
+            dataset = dataset.shuffle(shuffle)
+
+        dataset = dataset.batch(args["batch_size"])
+
+        self.dataset = dataset.prefetch(1)
+
+    def iterator(self):
+        for aa in self._annotated_audios:
             if self.window_size > aa.audio.samples_count:
                 raise RuntimeError("Window size is bigger than the audio.")
 
-            for j in range(0, len(aa.annotation.times)-annotations_per_window, annotations_per_window):
-                data.append((i, j))
-
-            self.total_duration += aa.annotation.times[-1]
-
-        Dataset.__init__(self, np.array(data, dtype=np.int32), shuffle_batches)
+            for annotation_index in range(0, len(aa.annotation.times)-self.annotations_per_window, self.annotations_per_window):
+                yield self._create_example(aa, annotation_index)
 
     def all_samples(self):
-        samples = [aa.audio.samples for aa in self.annotated_audios]
+        samples = [aa.audio.samples for aa in self._annotated_audios]
         return np.concatenate(samples)
 
-    def _create_batch(self, permutation):
-        batch = Dataset._create_batch(self, permutation)
-        new_batch = []
+    def _create_example(self, aa, annotation_start):
+        annotation_end = annotation_start + self.annotations_per_window
+        annotations_ragged = aa.annotation.notes[annotation_start:annotation_end]
+        annotations = [np.concatenate([annot, np.zeros(aa.annotation.max_polyphony - len(annot))]) for annot in annotations_ragged]
+        times = aa.annotation.times[annotation_start:annotation_end]
 
-        annotations = [self.annotated_audios[i].annotation.notes[j:j+self.annotations_per_window] for i,j in batch]
+        window_start_sample = np.floor(aa.annotation.times[annotation_start]*self.samplerate)
+        audio, spectrogram = aa.audio.get_window_at_sample(window_start_sample, self.inner_window_size, self.context_width)
 
-        max_len = max([len(annot) for annots in annotations for annot in annots])
+        return (audio, annotations, times, aa.audio.uid)
 
-        # transforming the batch - add actual audio snippets according to window_bounds
-        for i,j in batch:
-            aa = self.annotated_audios[i]
-
-            # annotation window
-            annotation_ragged = aa.annotation.notes[j:j+self.annotations_per_window]
-            # padding the annotations
-            annotation = [np.concatenate([annot, np.zeros(max_len - len(annot))]) for annot in annotation_ragged]
-
-            window_start_sample = np.floor(aa.annotation.times[j]*self.samplerate)
-            audio, spectrogram = aa.audio.get_window_at_sample(window_start_sample, self.inner_window_size, self.context_width)
-
-            new_batch.append({
-                "audio": audio,
-                "spectrogram": spectrogram,
-                "annotation_ragged": annotation_ragged,
-                "annotation": annotation
-                })
-
-        return new_batch
-
+    def get_annotated_audio_by_uid(self, uid):
+        for aa in self._annotated_audios:
+            if aa.audio.uid == uid:
+                return aa

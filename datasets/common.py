@@ -1,4 +1,4 @@
-from .dataset import AnnotatedAudio, Audio, Annotation, Dataset, AADataset
+from .dataset import AnnotatedAudio, Audio, Annotation, AADataset
 
 import numpy as np
 import mir_eval

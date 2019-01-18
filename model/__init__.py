@@ -18,6 +18,8 @@ import os
 import datasets
 import pandas
 
+from collections import defaultdict
+
 class Network:
     def __init__(self, threads, seed=42):
         # Create an empty graph and a session
@@ -29,7 +31,7 @@ class Network:
                                                                        inter_op_parallelism_threads=threads,
                                                                        intra_op_parallelism_threads=threads))
 
-    def construct(self, args, create_model, create_summaries = None):
+    def construct(self, args, create_model, output_types, output_shapes, create_summaries = None):
         self.logdir = args["logdir"]
         self.note_range = args["note_range"]
 
@@ -48,12 +50,16 @@ class Network:
 
         with self.session.graph.as_default():
             # Inputs
-            self.window_int16 = tf.placeholder(tf.int16, [None, self.window_size], name="window")
-            self.window = tf.cast(self.window_int16, tf.float32)/32768.0
-            if self.spectrogram_shape is not None:
-                self.spectrogram = tf.placeholder(tf.float32, [None, self.spectrogram_shape[0], self.spectrogram_shape[1]], name="spectrogram")
+            self.handle = tf.placeholder(tf.string, shape=[])
+            self.iterator = tf.data.Iterator.from_string_handle(self.handle, output_types, output_shapes)
 
-            self.annotations = tf.placeholder(tf.int32, [None, self.annotations_per_window, None], name="annotations")
+            self.window_int16, self.annotations, self.times, self.audio_uid = self.iterator.get_next()
+
+            self.window = tf.cast(self.window_int16, tf.float32)/32768.0
+
+            # if self.spectrogram_shape is not None:
+            #     self.spectrogram = tf.placeholder(tf.float32, [None, self.spectrogram_shape[0], self.spectrogram_shape[1]], name="spectrogram")
+
             self.is_training = tf.placeholder(tf.bool, [], name="is_training")
 
             # lowpriority TODO: použít booleanmask, abych pak nemusel odstraňovat ty nulové anotace
@@ -92,68 +98,52 @@ class Network:
     def _summaries(self, args, summary_writer):
         raise NotImplementedError()
 
-    def _unpack_one(self, batch, key):
-        unpacked = []
-        for b in batch:
-            if key not in b or b[key] is None:
-                return None
-            unpacked.append(b[key])
-        return unpacked
+    def train(self, train_dataset, test_dataset, small_test_dataset, epochs, eval_small_every_n_batches=3000, eval_every_n_batches=10000, save_every_n_batches=20000):
+        with self.session.graph.as_default():
+            train_iterator = train_dataset.dataset.make_one_shot_iterator()
+            test_iterator = test_dataset.dataset.make_initializable_iterator()
+            small_test_iterator = small_test_dataset.dataset.make_initializable_iterator()
 
-    def _unpack_batch(self, batch):
-        return self._unpack_one(batch, "audio"), self._unpack_one(batch, "spectrogram"), self._unpack_one(batch, "annotation")
+        train_iterator_handle = self.session.run(train_iterator.string_handle())
+        test_iterator_handle = self.session.run(test_iterator.string_handle())
+        small_test_iterator_handle = self.session.run(small_test_iterator.string_handle())
 
-    def _prep_feed_dict(self, batch):
-        windows, spectrogram, annotations = self._unpack_batch(batch)
-
-        feed_dict = {}
-        if annotations is not None:
-            # TODO změnit na float
-            annotations = np.round(annotations)
-            feed_dict[self.annotations] = annotations
-
-        if windows is not None:
-            feed_dict[self.window_int16] = windows
-
-        if spectrogram is not None:
-            feed_dict[self.spectrogram] = spectrogram
-
-        return feed_dict
-
-    def train_batch(self, batch):
-        feed_dict = self._prep_feed_dict(batch)
-        feed_dict[self.is_training] = True
-
-        out = self.session.run([self.accuracy, self.loss, self.training, self.summaries["train"]], feed_dict)
-        return out[0], out[1]
-    
-    def train(self, train_dataset, test_dataset, small_test_dataset, batch_size, epochs, eval_small_every_n_batches=3000, eval_every_n_batches=10000, save_every_n_batches=20000):
-        train_dataset.reset()
         b = 0
         timer = time.time()
         for i in range(epochs):
             print("=== epoch", i+1, "===")
-            while not train_dataset.epoch_finished():
-                batch = train_dataset.next_batch(batch_size)
-                accuracy, loss = self.train_batch(batch)
+            while True:
+                feed_dict = {
+                    self.handle: train_iterator_handle,
+                    self.is_training: True
+                }
+
+                try:
+                    accuracy, loss, _, _ = self.session.run([self.accuracy, self.loss, self.training, self.summaries["train"]], feed_dict)
+                except tf.errors.OutOfRangeError:
+                    break
 
                 b += 1
+
                 if b % 200 == 0:
                     print(".", end="")
+
                 if b % 1000 == 0:
                     print("b {0}; t {1:.2f}; acc {2:.2f}; loss {3:.2f}".format(b, time.time() - timer, accuracy, loss))
                     timer = time.time()
+
                 if b % eval_small_every_n_batches == 0:
-                    oa, rpa, vr = self.evaluate(small_test_dataset.annotated_audios, batch_size, dataset_name="test_small", visual_output=True)
-                    # reference, estimation, loss = network.predict(small_test_dataset, 2)
-                    # fig, ax = vis.draw_notes(reference, estimation, ".")
-                    # plt.show()
+                    self.session.run(small_test_iterator.initializer)
+                    oa, rpa, vr = self._evaluate_handle(small_test_dataset, small_test_iterator_handle, dataset_name="test_small", visual_output=True)
                     print("small_test: t {:.2f}, OA: {:.2f}, RPA: {:.2f}, VR: {:.2f}".format(time.time() - timer, oa, rpa, vr))
                     timer = time.time()
+
                 if b % eval_every_n_batches == 0:
-                    oa, rpa, vr = self.evaluate(test_dataset.annotated_audios, batch_size, dataset_name="test")
+                    self.session.run(test_iterator.initializer)
+                    oa, rpa, vr = self._evaluate_handle(test_dataset, test_iterator_handle, dataset_name="test")
                     print("test: t {:.2f}, OA: {:.2f}, RPA: {:.2f}, VR: {:.2f}".format(time.time() - timer, oa, rpa, vr))
                     timer = time.time()
+
                 if b % save_every_n_batches == 0:
                     self.save()
                     print("saving, t {:.2f}".format(time.time()-timer))
@@ -161,55 +151,54 @@ class Network:
                 
         print("=== done ===")
     
-    def evaluate(self):
+    def _evaluate_handle(self):
         raise NotImplementedError()
 
+    def _predict_handle(self, handle):
+        feed_dict = {
+            self.is_training: False,
+            self.handle: handle
+        }
+
+        notes = defaultdict(list)
+        times = defaultdict(list)
+        while True:
+            try:
+                fetches = self.session.run([self.est_notes, self.times, self.audio_uid], feed_dict)
+            except tf.errors.OutOfRangeError:
+                break
+
+            # iterates through the batch output
+            for est_notes_window, times_window, uid in zip(*fetches):
+                uid = uid.decode("utf-8")
+                # converts the sparse onehot/multihot vector to indices of ones
+                est_notes = [[i for i, v in enumerate(est_notes_frame) if v == 1] for est_notes_frame in est_notes_window]
+                notes[uid] += est_notes
+                # TODO zrychlit
+                times[uid] += list(times_window)
+
+        return notes, times
+
     def predict(self, audio, batch_size):
+        # TODO PŘEPSAT CELÝ
         assert audio.samplerate == self.samplerate
+
+        train_tf_dataset = tf.data.Dataset.from_generator(
+            generator=train_dataset.iterator,
+            output_types=(tf.int16, tf.int32),
+            output_shapes=(tf.TensorShape([train_dataset.window_size]), tf.TensorShape([train_dataset.annotations_per_window, None]))
+        ).batch(batch_size).prefetch(1)
+
         audio_iterator = audio.iterator(self.annotations_per_window * self.frame_width, self.context_width)
+        audio_iterator = train_dataset.make_one_shot_iterator()
+        audio_iterator_handle = sess.run(audio_iterator.string_handle())
+
 
         # audio_dataset = tf.data.Dataset.from_generator(audio_iterator, (tf.int16, tf.float32)).batch(batch_size)
         # iterator = audio_dataset.make_initializable_iterator()
         # sess.run(iterator.initializer, feed_dict={self.is_training: False})
 
-        estimation = []
-        batch = []
-        for audio, spectrogram in audio_iterator:
-            if len(batch) < 32:
-                batch.append({
-                    "audio": audio,
-                    "spectrogram": spectrogram
-                })
-                continue
-            # ====
-            batch.append({
-                "audio": audio,
-                "spectrogram": spectrogram
-            })
-            # ====
-
-            feed_dict = self._prep_feed_dict(batch)
-            feed_dict[self.is_training] = False
-
-            batch_est_notes = self.session.run(self.est_notes, feed_dict)
-            est_annotation = [[i for i, v in enumerate(est_notes_frame) if v == 1] for est_notes in batch_est_notes for est_notes_frame in est_notes]
-
-            estimation += est_annotation
-
-            batch = []
-        
-        # ====
-        if len(batch) > 0:
-            feed_dict = self._prep_feed_dict(batch)
-            feed_dict[self.is_training] = False
-
-            batch_est_notes = self.session.run(self.est_notes, feed_dict)
-            est_annotation = [[i for i, v in enumerate(est_notes_frame) if v == 1] for est_notes in batch_est_notes for est_notes_frame in est_notes]
-
-            estimation += est_annotation
-        # ====
-
-        return estimation
+        return self._predict_handle(audio_iterator_handle)
 
     def save_model_fnc(self, create_model):
         plaintext = inspect.getsource(create_model)
@@ -281,22 +270,26 @@ class NetworkMelody(Network):
                                         ]
 
 
-    def evaluate(self, annotated_audios, batch_size, dataset_name=None, visual_output=False, print_detailed=False):
+    def _evaluate_handle(self, dataset, handle, dataset_name=None, visual_output=False, print_detailed=False):
         all_metrics = []
         reference = []
         estimation = []
-        for aa in annotated_audios:
-            est_notes = self.predict(aa.audio, batch_size)
+
+        estimations, times = self._predict_handle(handle)
+
+        for uid, est_notes in estimations.items():
+            aa = dataset.get_annotated_audio_by_uid(uid)
+            
             est_freq = [mir_eval.util.midi_to_hz(np.array(notes_frame)) for notes_frame in est_notes]
             est_freq = np.array(datasets.common.multif0_to_melody(est_freq))
 
-            # TODO přepsat duration na property ?
-            est_time = np.arange(0, aa.audio.get_duration(), self.frame_width/self.samplerate)
-
+            est_time = np.array(times[uid])
+            
             ref_time = np.array(aa.annotation.times)
             ref_freq = np.array(datasets.common.multif0_to_melody(aa.annotation.freqs))
+
             metrics = mir_eval.melody.evaluate(ref_time, ref_freq, est_time, est_freq)
-            metrics["Track"] = aa.audio.uid
+            metrics["Track"] = uid
             all_metrics.append(metrics)
 
             reference += list(aa.annotation.notes)

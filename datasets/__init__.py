@@ -1,5 +1,5 @@
 from .musicnet import musicnet_dataset
-from .dataset import AnnotatedAudio, Audio, Annotation, Dataset, AADataset
+from .dataset import AnnotatedAudio, Audio, Annotation, AADataset
 
 def load_all(data, samplerate):
     for i,d in enumerate(data):
