@@ -172,8 +172,8 @@ class Network:
             for est_notes_window, times_window, uid in zip(*fetches):
                 uid = uid.decode("utf-8")
                 # converts the sparse onehot/multihot vector to indices of ones
-                est_notes = [[i for i, v in enumerate(est_notes_frame) if v == 1] for est_notes_frame in est_notes_window]
-                notes[uid] += est_notes
+                # est_notes = [[i for i, v in enumerate(est_notes_frame) if v == 1] for est_notes_frame in est_notes_window]
+                notes[uid] += list(est_notes_window)
                 # TODO zrychlit
                 times[uid] += list(times_window)
 
@@ -199,6 +199,13 @@ class Network:
         # sess.run(iterator.initializer, feed_dict={self.is_training: False})
 
         return self._predict_handle(audio_iterator_handle)
+    
+    def evaluate(self, dataset, **kwargs):
+        with self.session.graph.as_default():
+            iterator = dataset.dataset.make_one_shot_iterator()
+        handle = self.session.run(iterator.string_handle())
+
+        return self._evaluate_handle(dataset, handle, **kwargs)
 
     def save_model_fnc(self, create_model):
         plaintext = inspect.getsource(create_model)
@@ -220,7 +227,8 @@ class NetworkMelody(Network):
             # TODO: opravit, pořád nefunguje
             # ref_notes_b = tf.cast(self.ref_notes, tf.bool)
             # est_notes_b = tf.cast(self.est_notes, tf.bool)
-            true_positive_sum = tf.count_nonzero(tf.equal(self.ref_notes, self.est_notes))
+            true_positive_sum = tf.constant(1, dtype=tf.int64)
+            # true_positive_sum = tf.count_nonzero(tf.equal(self.ref_notes, self.est_notes))
             n_ref_sum = tf.count_nonzero(self.ref_notes != 0)
             n_est_sum = tf.count_nonzero(self.est_notes != 0)
 
@@ -279,10 +287,10 @@ class NetworkMelody(Network):
 
         for uid, est_notes in estimations.items():
             aa = dataset.get_annotated_audio_by_uid(uid)
-            
-            est_freq = [mir_eval.util.midi_to_hz(np.array(notes_frame)) for notes_frame in est_notes]
-            est_freq = np.array(datasets.common.multif0_to_melody(est_freq))
 
+            est_freq = mir_eval.util.midi_to_hz(np.array(est_notes))
+            # est_freq = [mir_eval.util.midi_to_hz(np.array(notes_frame)) for notes_frame in est_notes]
+            # est_freq = np.array(datasets.common.multif0_to_melody(est_freq))
             est_time = np.array(times[uid])
             
             ref_time = np.array(aa.annotation.times)
@@ -317,6 +325,7 @@ class NetworkMelody(Network):
                 metrics['Voicing Recall'],
                 metrics['Voicing False Alarm']
                 )
+            estimation = datasets.common.melody_to_multif0(estimation)
             fig = vis.draw_notes(reference, estimation, title=title)
             summaries[self.image1] = vis.fig2data(fig)
 
