@@ -1,34 +1,46 @@
 import mir_eval
 from glob import glob
 import pandas
+
 import os
+from os.path import join
 import matplotlib.pyplot as plt
 
 # Evaluujeme pouze podmnožinu MedleyDB a MDB-melody-synth
 modulepath = os.path.dirname(__file__)
 import json
-with open(os.path.join(modulepath, "../datasets/MedleyDB/dataset_ismir_split.json")) as f:
+with open(join(modulepath, "../data/MedleyDB/dataset_ismir_split.json")) as f:
     medley_test_subset = json.load(f)["test"]
 
-datasets = {
-    "ORCHSET": ("orchset", os.path.join(modulepath, "../datasets/Orchset/GT/*.mel"), None),
-    "ADC04": ("adc04", os.path.join(modulepath, "../datasets/adc2004/adc2004_full_set/*REF.txt"), None),
-    "MIREX05": ("mirex05", os.path.join(modulepath, "../datasets/mirex05/mirex05TrainFiles/*REF.txt"), None),
-    "MDB-f0-s.": ("mdb-melody-synth_test", os.path.join(modulepath, "../datasets/MDB-melody-synth/annotation_melody/*.csv"), medley_test_subset),
-    "MedleyDB": ("medleydb_test", os.path.join(modulepath, "../datasets/MedleyDB/MedleyDB/Annotations/Melody_Annotations/MELODY2/*.csv"), medley_test_subset),
+import datasets
+
+dataset_list = {
+    "ORCHSET": (
+        "orchset",
+        list(datasets.orchset.generator(join(modulepath, "../data/Orchset")))
+        ),
+    "ADC04": (
+        "adc04",
+        list(datasets.adc2004.generator(join(modulepath, "../data/adc2004")))
+        ),
+    "MIREX05": (
+        "mirex05",
+        list(datasets.mirex05.generator(join(modulepath, "../data/mirex05")))
+        ),
+    "MDB-f0-s.": (
+        "mdb-melody-synth_test",
+        list(filter(lambda x: x.uid in medley_test_subset, datasets.mdb_melody_synth.generator(join(modulepath, "../data/MDB-melody-synth"))))
+        ),
+    "MedleyDB": (
+        "medleydb_test",
+        list(filter(lambda x: x.uid in medley_test_subset, datasets.medleydb.generator(join(modulepath, "../data/MedleyDB/MedleyDB"))))
+        ),
 }
 
-def evaluate_dataset_melody(refs, ests, subset=None, per_track_info=False):
-    refs_all = sorted(refs)
-    refs = []
-    if subset:
-        for ref in refs_all:
-            if any([name in ref for name in subset]):
-                refs.append(ref)
-    else:
-        refs = refs_all
-
+def evaluate_dataset_melody(refs, ests, per_track_info=False):
+    refs = sorted(refs)
     ests = sorted(ests)
+
     all_scores = []
     for ref, est in zip(refs, ests):
         filename = os.path.splitext(os.path.basename(ref))[0]
@@ -52,3 +64,17 @@ def evaluate_dataset_melody(refs, ests, subset=None, per_track_info=False):
             print()
 
     return all_scores
+
+def summary(method, path):
+    results = {}
+
+    for name, (prefix, dataset_iterator) in dataset_list.items():
+        refs = map(lambda x: x.annot_path, dataset_iterator)
+
+        ests_dir = "{}-{}-melody-outputs".format(prefix, method)
+        ests = glob(join(path, ests_dir, "*"))
+
+        result = evaluate_dataset_melody(refs, ests)
+        results[name] = result
+    summarized = {k: pandas.DataFrame(v).mean() for k, v in results.items()}
+    return pandas.DataFrame(summarized)
