@@ -265,6 +265,7 @@ class AADataset:
     def _create_example(self, aa, annotation_start):
         annotation_end = annotation_start + self.annotations_per_window
         annotations_ragged = aa.annotation.notes[annotation_start:annotation_end]
+        annotations_ragged = np.round(annotations_ragged)
         annotations = [np.concatenate([annot, np.zeros(aa.annotation.max_polyphony - len(annot))]) for annot in annotations_ragged]
         times = aa.annotation.times[annotation_start:annotation_end]
 
