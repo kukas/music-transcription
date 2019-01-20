@@ -4,6 +4,8 @@ from glob import glob
 
 from .common import load_melody_dataset, Track
 
+prefix = "mdb_melody_synth"
+
 def generator(dataset_root):
     dataset_audio_path = os.path.join(dataset_root, "audio_mix")
     dataset_annot_path = os.path.join(dataset_root, "annotation_melody")
@@ -19,4 +21,4 @@ def generator(dataset_root):
         yield Track(audio_path, annot_path, uid)
 
 def dataset(dataset_root):
-    return load_melody_dataset("MDB_melody_synth", generator(dataset_root))
+    return load_melody_dataset(prefix, generator(dataset_root))

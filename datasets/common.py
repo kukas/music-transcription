@@ -24,8 +24,11 @@ def load_melody_dataset(name, dataset_iterator):
         audio = Audio(audio_path, name+"_"+uid)
 
         # prepare annotation
-        times, freqs = mir_eval.io.load_time_series(annot_path, delimiter='\s+|,')
-        annotation = Annotation(times, melody_to_multif0(freqs))
+        annotation = None
+        if annot_path is not None:
+                times, freqs = mir_eval.io.load_time_series(annot_path, delimiter='\s+|,')
+                annotation = Annotation(times, melody_to_multif0(freqs))
+
         annotated_audios.append(AnnotatedAudio(annotation, audio))
 
         print(".", end=("" if (i+1) % 20 else "\n"))

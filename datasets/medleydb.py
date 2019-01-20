@@ -4,6 +4,8 @@ import numpy as np
 
 from .common import load_melody_dataset, Track
 
+prefix = "mdb"
+
 def generator(dataset_root):
     dataset_audio_path = os.path.join(dataset_root, "Audio")
     dataset_annot_path = os.path.join(dataset_root, "Annotations", "Melody_Annotations", "MELODY2")
@@ -17,4 +19,4 @@ def generator(dataset_root):
         yield Track(audio_path, annot_path, uid)
 
 def dataset(dataset_root):
-    return load_melody_dataset("MDB", generator(dataset_root))
+    return load_melody_dataset(prefix, generator(dataset_root))

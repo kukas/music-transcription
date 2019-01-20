@@ -206,12 +206,11 @@ class Annotation:
         return Annotation(sliced_times, sliced_freqs, sliced_notes)
 
 class AADataset:
-    def __init__(self, _annotated_audios, args, shuffle=None):
+    def __init__(self, _annotated_audios, args, preload_hook=None, dataset_transform=None):
         self._annotated_audios = _annotated_audios
-        aa = _annotated_audios[0]
 
-        self.samplerate = aa.audio.samplerate
-        self.frame_width = int(np.round(aa.annotation.get_frame_width()*self.samplerate))
+        # self.frame_width = int(np.round(aa.annotation.get_frame_width()*self.samplerate))
+        self.frame_width = args["frame_width"]
 
         self.context_width = args["context_width"]
         self.annotations_per_window = args["annotations_per_window"]
@@ -219,26 +218,39 @@ class AADataset:
         self.inner_window_size = self.annotations_per_window*self.frame_width
         self.window_size = self.inner_window_size + 2*self.context_width
 
-        self.total_duration = 0
-        for aa in self._annotated_audios:
-            self.total_duration += aa.annotation.times[-1]
-        
+        if preload_hook is not None:
+            for aa in self._annotated_audios:
+                preload_hook(aa)
+
+                if aa.annotation is None:
+                    # add dummy annotation if the annotation is missing
+                    times = np.arange(0, aa.audio.samples_count, self.frame_width) / aa.audio.samplerate
+                    freqs = np.tile(440, [len(times),1])
+                    notes = np.tile(69, [len(times),1])
+
+                    aa.annotation = Annotation(times, freqs, notes)
+
+        self.samplerate = _annotated_audios[0].audio.samplerate
+
         output_types, output_shapes = zip(*[
             (tf.int16,   tf.TensorShape([self.window_size])),
             (tf.int32,   tf.TensorShape([self.annotations_per_window, None])),
             (tf.float32, tf.TensorShape([self.annotations_per_window])),
             (tf.string,  None),
         ])
-        dataset = tf.data.Dataset.from_generator(self.iterator, output_types, output_shapes)
 
-        if shuffle is not None:
-            dataset = dataset.shuffle(shuffle)
+        dataset = tf.data.Dataset.from_generator(self._generator, output_types, output_shapes)
 
-        dataset = dataset.batch(args["batch_size"])
+        self.dataset = dataset if dataset_transform is None else dataset_transform(dataset)
 
-        self.dataset = dataset.prefetch(1)
+    @property
+    def total_duration(self):
+        total_duration = 0
+        for aa in self._annotated_audios:
+            total_duration += aa.annotation.times[-1]
+        return total_duration
 
-    def iterator(self):
+    def _generator(self):
         for aa in self._annotated_audios:
             if self.window_size > aa.audio.samples_count:
                 raise RuntimeError("Window size is bigger than the audio.")
@@ -256,7 +268,7 @@ class AADataset:
         annotations = [np.concatenate([annot, np.zeros(aa.annotation.max_polyphony - len(annot))]) for annot in annotations_ragged]
         times = aa.annotation.times[annotation_start:annotation_end]
 
-        window_start_sample = np.floor(aa.annotation.times[annotation_start]*self.samplerate)
+        window_start_sample = np.floor(times[0]*self.samplerate)
         audio, spectrogram = aa.audio.get_window_at_sample(window_start_sample, self.inner_window_size, self.context_width)
 
         return (audio, annotations, times, aa.audio.uid)

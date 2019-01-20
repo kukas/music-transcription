@@ -31,7 +31,8 @@ class Network:
                                                                        inter_op_parallelism_threads=threads,
                                                                        intra_op_parallelism_threads=threads))
 
-    def construct(self, args, create_model, output_types, output_shapes, create_summaries = None):
+    def construct(self, args, create_model, output_types, output_shapes, create_summaries=None, dataset_preload_hook=None, dataset_transform=None):
+        self.args = args
         self.logdir = args["logdir"]
         self.note_range = args["note_range"]
 
@@ -44,6 +45,9 @@ class Network:
         self.spectrogram_shape = None
         if "spectrogram_shape" in args:
             self.spectrogram_shape = args["spectrogram_shape"]
+
+        self.dataset_preload_hook = dataset_preload_hook
+        self.dataset_transform = dataset_transform
 
         # save the model function for easier reproducibility
         self.save_model_fnc(create_model)
@@ -150,9 +154,6 @@ class Network:
                     timer = time.time()
                 
         print("=== done ===")
-    
-    def _evaluate_handle(self):
-        raise NotImplementedError()
 
     def _predict_handle(self, handle):
         feed_dict = {
@@ -177,29 +178,26 @@ class Network:
                 # TODO zrychlit
                 times[uid] += list(times_window)
 
-        return notes, times
+        estimations = {}
+        for uid in notes.keys():
+            est_time = np.array(times[uid])
+            est_freq = mir_eval.util.midi_to_hz(np.array(notes[uid]))
+            estimations[uid] = (est_time, est_freq)
 
-    def predict(self, audio, batch_size):
-        # TODO PŘEPSAT CELÝ
-        assert audio.samplerate == self.samplerate
+        return estimations
 
-        train_tf_dataset = tf.data.Dataset.from_generator(
-            generator=train_dataset.iterator,
-            output_types=(tf.int16, tf.int32),
-            output_shapes=(tf.TensorShape([train_dataset.window_size]), tf.TensorShape([train_dataset.annotations_per_window, None]))
-        ).batch(batch_size).prefetch(1)
+    def predict(self, dataset_iterator, name="predict"):
+        predict_data = datasets.load_melody_dataset(name, dataset_iterator)
+        with self.session.graph.as_default():
+            predict_dataset = datasets.AADataset(predict_data, self.args, self.dataset_preload_hook, self.dataset_transform)
+            iterator = predict_dataset.dataset.make_one_shot_iterator()
+        handle = self.session.run(iterator.string_handle())
 
-        audio_iterator = audio.iterator(self.annotations_per_window * self.frame_width, self.context_width)
-        audio_iterator = train_dataset.make_one_shot_iterator()
-        audio_iterator_handle = sess.run(audio_iterator.string_handle())
-
-
-        # audio_dataset = tf.data.Dataset.from_generator(audio_iterator, (tf.int16, tf.float32)).batch(batch_size)
-        # iterator = audio_dataset.make_initializable_iterator()
-        # sess.run(iterator.initializer, feed_dict={self.is_training: False})
-
-        return self._predict_handle(audio_iterator_handle)
+        return self._predict_handle(handle)
     
+    def _evaluate_handle(self, dataset, handle):
+        raise NotImplementedError()
+
     def evaluate(self, dataset, **kwargs):
         with self.session.graph.as_default():
             iterator = dataset.dataset.make_one_shot_iterator()
@@ -283,16 +281,11 @@ class NetworkMelody(Network):
         reference = []
         estimation = []
 
-        estimations, times = self._predict_handle(handle)
+        estimations = self._predict_handle(handle)
 
-        for uid, est_notes in estimations.items():
+        for uid, (est_time, est_freq) in estimations.items():
             aa = dataset.get_annotated_audio_by_uid(uid)
 
-            est_freq = mir_eval.util.midi_to_hz(np.array(est_notes))
-            # est_freq = [mir_eval.util.midi_to_hz(np.array(notes_frame)) for notes_frame in est_notes]
-            # est_freq = np.array(datasets.common.multif0_to_melody(est_freq))
-            est_time = np.array(times[uid])
-            
             ref_time = np.array(aa.annotation.times)
             ref_freq = np.array(datasets.common.multif0_to_melody(aa.annotation.freqs))
 
@@ -301,7 +294,7 @@ class NetworkMelody(Network):
             all_metrics.append(metrics)
 
             reference += list(aa.annotation.notes)
-            estimation += est_notes
+            estimation += list(mir_eval.util.hz_to_midi(est_freq))
 
         metrics = pandas.DataFrame(all_metrics).mean()
 
