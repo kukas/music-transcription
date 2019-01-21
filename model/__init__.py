@@ -99,6 +99,9 @@ class Network:
             with summary_writer.as_default():
                 tf.contrib.summary.initialize(session=self.session, graph=self.session.graph)
 
+            if os.path.exists(os.path.join(self.logdir, "model.ckpt")):
+                self.restore()
+
     def _summaries(self, args, summary_writer):
         raise NotImplementedError()
 
@@ -174,14 +177,16 @@ class Network:
                 uid = uid.decode("utf-8")
                 # converts the sparse onehot/multihot vector to indices of ones
                 # est_notes = [[i for i, v in enumerate(est_notes_frame) if v == 1] for est_notes_frame in est_notes_window]
-                notes[uid] += list(est_notes_window)
+                notes[uid].append(est_notes_window)
                 # TODO zrychlit
-                times[uid] += list(times_window)
+                times[uid].append(times_window)
 
         estimations = {}
         for uid in notes.keys():
-            est_time = np.array(times[uid])
-            est_freq = mir_eval.util.midi_to_hz(np.array(notes[uid]))
+            est_time = np.concatenate(times[uid])
+            est_notes = np.concatenate(notes[uid])
+            est_freq = mir_eval.util.midi_to_hz(est_notes)
+            est_freq[est_notes==0] = 0
             estimations[uid] = (est_time, est_freq)
 
         return estimations
@@ -293,8 +298,9 @@ class NetworkMelody(Network):
             metrics["Track"] = uid
             all_metrics.append(metrics)
 
-            reference += list(aa.annotation.notes)
-            estimation += list(mir_eval.util.hz_to_midi(est_freq))
+            if visual_output:
+                reference += list(aa.annotation.notes)
+                estimation += list(datasets.common.hz_to_midi_safe(est_freq))
 
         metrics = pandas.DataFrame(all_metrics).mean()
 
@@ -318,6 +324,7 @@ class NetworkMelody(Network):
                 metrics['Voicing Recall'],
                 metrics['Voicing False Alarm']
                 )
+            
             estimation = datasets.common.melody_to_multif0(estimation)
             fig = vis.draw_notes(reference, estimation, title=title)
             summaries[self.image1] = vis.fig2data(fig)

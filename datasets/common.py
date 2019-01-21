@@ -8,6 +8,7 @@ from collections import namedtuple
 
 Track = namedtuple("Track", ("audio_path", "annot_path", "uid"))
 
+
 def mirex_melody_dataset_generator(dataset_audio_path, dataset_annot_path, annot_extension=".csv"):
     uids = [f[:-4] for f in os.listdir(dataset_audio_path) if f.endswith('.wav')]
 
@@ -16,6 +17,7 @@ def mirex_melody_dataset_generator(dataset_audio_path, dataset_annot_path, annot
         annot_path = os.path.join(dataset_annot_path, uid+annot_extension)
 
         yield Track(audio_path, annot_path, uid)
+
 
 def load_melody_dataset(name, dataset_iterator):
     annotated_audios = []
@@ -36,8 +38,19 @@ def load_melody_dataset(name, dataset_iterator):
 
     return annotated_audios
 
+
 def melody_to_multif0(values):
     return [[x] if x > 0 else [] for x in values]
 
+
 def multif0_to_melody(values):
     return [x[0] if len(x) > 0 else 0 for x in values]
+
+
+def hz_to_midi_safe(freqs):
+    notes = list(map(lambda x: mir_eval.util.hz_to_midi(x) if x > 0 else 0, freqs))
+    return np.array(notes)
+
+def midi_to_hz_safe(notes):
+    freqs = list(map(lambda x: mir_eval.util.midi_to_hz(x) if x > 0 else 0, notes))
+    return np.array(freqs)
