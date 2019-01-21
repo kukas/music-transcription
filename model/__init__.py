@@ -105,15 +105,15 @@ class Network:
     def _summaries(self, args, summary_writer):
         raise NotImplementedError()
 
-    def train(self, train_dataset, test_dataset, small_test_dataset, epochs, eval_small_every_n_batches=3000, eval_every_n_batches=10000, save_every_n_batches=20000):
+    def train(self, train_dataset, valid_dataset, small_valid_dataset, epochs, eval_small_every_n_batches=3000, eval_every_n_batches=10000, save_every_n_batches=20000):
         with self.session.graph.as_default():
             train_iterator = train_dataset.dataset.make_one_shot_iterator()
-            test_iterator = test_dataset.dataset.make_initializable_iterator()
-            small_test_iterator = small_test_dataset.dataset.make_initializable_iterator()
+            validation_iterator = valid_dataset.dataset.make_initializable_iterator()
+            small_validation_iterator = small_valid_dataset.dataset.make_initializable_iterator()
 
         train_iterator_handle = self.session.run(train_iterator.string_handle())
-        test_iterator_handle = self.session.run(test_iterator.string_handle())
-        small_test_iterator_handle = self.session.run(small_test_iterator.string_handle())
+        validation_iterator_handle = self.session.run(validation_iterator.string_handle())
+        small_validation_iterator_handle = self.session.run(small_validation_iterator.string_handle())
 
         b = 0
         timer = time.time()
@@ -140,15 +140,15 @@ class Network:
                     timer = time.time()
 
                 if b % eval_small_every_n_batches == 0:
-                    self.session.run(small_test_iterator.initializer)
-                    oa, rpa, vr = self._evaluate_handle(small_test_dataset, small_test_iterator_handle, dataset_name="test_small", visual_output=True)
-                    print("small_test: t {:.2f}, OA: {:.2f}, RPA: {:.2f}, VR: {:.2f}".format(time.time() - timer, oa, rpa, vr))
+                    self.session.run(small_validation_iterator.initializer)
+                    oa, rpa, vr = self._evaluate_handle(small_valid_dataset, small_validation_iterator_handle, dataset_name="validation_small", visual_output=True)
+                    print("small_validation: t {:.2f}, OA: {:.2f}, RPA: {:.2f}, VR: {:.2f}".format(time.time() - timer, oa, rpa, vr))
                     timer = time.time()
 
                 if b % eval_every_n_batches == 0:
-                    self.session.run(test_iterator.initializer)
-                    oa, rpa, vr = self._evaluate_handle(test_dataset, test_iterator_handle, dataset_name="test")
-                    print("test: t {:.2f}, OA: {:.2f}, RPA: {:.2f}, VR: {:.2f}".format(time.time() - timer, oa, rpa, vr))
+                    self.session.run(validation_iterator.initializer)
+                    oa, rpa, vr = self._evaluate_handle(valid_dataset, validation_iterator_handle, dataset_name="validation")
+                    print("validation: t {:.2f}, OA: {:.2f}, RPA: {:.2f}, VR: {:.2f}".format(time.time() - timer, oa, rpa, vr))
                     timer = time.time()
 
                 if b % save_every_n_batches == 0:
@@ -262,22 +262,22 @@ class NetworkMelody(Network):
             self.image1 = tf.placeholder(tf.uint8, [None, None, 4], name="image1")
             image1 = tf.expand_dims(self.image1, 0)
 
-            self.summaries["test_small"] = [tf.contrib.summary.image("test_small/image1", image1),
-                                            # tf.contrib.summary.scalar("test_small/loss", self.given_loss),
-                                            tf.contrib.summary.scalar("test_small/voicing_recall", self.given_vr),
-                                            tf.contrib.summary.scalar("test_small/voicing_false_alarm", self.given_vfa),
-                                            tf.contrib.summary.scalar("test_small/raw_pitch_accuracy", self.given_rpa),
-                                            tf.contrib.summary.scalar("test_small/raw_chroma_accuracy", self.given_rca),
-                                            tf.contrib.summary.scalar("test_small/overall_accuracy", self.given_oa),
+            self.summaries["validation_small"] = [tf.contrib.summary.image("validation_small/image1", image1),
+                                            # tf.contrib.summary.scalar("validation_small/loss", self.given_loss),
+                                            tf.contrib.summary.scalar("validation_small/voicing_recall", self.given_vr),
+                                            tf.contrib.summary.scalar("validation_small/voicing_false_alarm", self.given_vfa),
+                                            tf.contrib.summary.scalar("validation_small/raw_pitch_accuracy", self.given_rpa),
+                                            tf.contrib.summary.scalar("validation_small/raw_chroma_accuracy", self.given_rca),
+                                            tf.contrib.summary.scalar("validation_small/overall_accuracy", self.given_oa),
                                             ]
 
-            self.summaries["test"] = [
-                                        # tf.contrib.summary.scalar("test/loss", self.given_loss),
-                                        tf.contrib.summary.scalar("test/voicing_recall", self.given_vr),
-                                        tf.contrib.summary.scalar("test/voicing_false_alarm", self.given_vfa),
-                                        tf.contrib.summary.scalar("test/raw_pitch_accuracy", self.given_rpa),
-                                        tf.contrib.summary.scalar("test/raw_chroma_accuracy", self.given_rca),
-                                        tf.contrib.summary.scalar("test/overall_accuracy", self.given_oa),
+            self.summaries["validation"] = [
+                                        # tf.contrib.summary.scalar("validation/loss", self.given_loss),
+                                        tf.contrib.summary.scalar("validation/voicing_recall", self.given_vr),
+                                        tf.contrib.summary.scalar("validation/voicing_false_alarm", self.given_vfa),
+                                        tf.contrib.summary.scalar("validation/raw_pitch_accuracy", self.given_rpa),
+                                        tf.contrib.summary.scalar("validation/raw_chroma_accuracy", self.given_rca),
+                                        tf.contrib.summary.scalar("validation/overall_accuracy", self.given_oa),
                                         ]
 
 
