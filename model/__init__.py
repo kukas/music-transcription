@@ -159,7 +159,7 @@ class Network:
                 
         print("=== done ===")
 
-    def _predict_handle(self, handle):
+    def _predict_handle(self, handle, additional_fetches=[]):
         feed_dict = {
             self.is_training: False,
             self.handle: handle
@@ -167,20 +167,23 @@ class Network:
 
         notes = defaultdict(list)
         times = defaultdict(list)
+        additional = []
         while True:
             try:
-                fetches = self.session.run([self.est_notes, self.times, self.audio_uid], feed_dict)
+                fetches = self.session.run([self.est_notes, self.times, self.audio_uid]+additional_fetches, feed_dict)
             except tf.errors.OutOfRangeError:
                 break
 
             # iterates through the batch output
-            for est_notes_window, times_window, uid in zip(*fetches):
+            for est_notes_window, times_window, uid, rest in zip(*(fetches[:3]), fetches[3:]):
                 uid = uid.decode("utf-8")
                 # converts the sparse onehot/multihot vector to indices of ones
                 # est_notes = [[i for i, v in enumerate(est_notes_frame) if v == 1] for est_notes_frame in est_notes_window]
                 notes[uid].append(est_notes_window)
                 # TODO zrychlit
                 times[uid].append(times_window)
+
+                additional.append(rest)
 
         estimations = {}
         for uid in notes.keys():
@@ -189,6 +192,9 @@ class Network:
             est_freq = mir_eval.util.midi_to_hz(est_notes)
             est_freq[est_notes==0] = 0
             estimations[uid] = (est_time, est_freq)
+
+        if additional_fetches:
+            return estimations, additional_fetches
 
         return estimations
 
@@ -252,8 +258,7 @@ class NetworkMelody(Network):
                                         tf.contrib.summary.scalar("train/accuracy", self.accuracy), ]
 
         with summary_writer.as_default(), tf.contrib.summary.always_record_summaries():
-            # TODO vrátit given loss, případně pomocí metrics.mean
-            # self.given_loss = tf.placeholder(tf.float32, [], name="given_loss")
+            self.given_loss = tf.placeholder(tf.float32, [], name="given_loss")
             self.given_vr = tf.placeholder(tf.float32, [], name="given_vr")
             self.given_vfa = tf.placeholder(tf.float32, [], name="given_vfa")
             self.given_rpa = tf.placeholder(tf.float32, [], name="given_rpa")
@@ -263,23 +268,24 @@ class NetworkMelody(Network):
             self.image1 = tf.placeholder(tf.uint8, [None, None, 4], name="image1")
             image1 = tf.expand_dims(self.image1, 0)
 
-            self.summaries["validation_small"] = [tf.contrib.summary.image("validation_small/image1", image1),
-                                            # tf.contrib.summary.scalar("validation_small/loss", self.given_loss),
-                                            tf.contrib.summary.scalar("validation_small/voicing_recall", self.given_vr),
-                                            tf.contrib.summary.scalar("validation_small/voicing_false_alarm", self.given_vfa),
-                                            tf.contrib.summary.scalar("validation_small/raw_pitch_accuracy", self.given_rpa),
-                                            tf.contrib.summary.scalar("validation_small/raw_chroma_accuracy", self.given_rca),
-                                            tf.contrib.summary.scalar("validation_small/overall_accuracy", self.given_oa),
-                                            ]
+            self.summaries["validation_small"] = [
+                tf.contrib.summary.image("validation_small/image1", image1),
+                tf.contrib.summary.scalar("validation_small/loss", self.given_loss),
+                tf.contrib.summary.scalar("validation_small/voicing_recall", self.given_vr),
+                tf.contrib.summary.scalar("validation_small/voicing_false_alarm", self.given_vfa),
+                tf.contrib.summary.scalar("validation_small/raw_pitch_accuracy", self.given_rpa),
+                tf.contrib.summary.scalar("validation_small/raw_chroma_accuracy", self.given_rca),
+                tf.contrib.summary.scalar("validation_small/overall_accuracy", self.given_oa),
+            ]
 
             self.summaries["validation"] = [
-                                        # tf.contrib.summary.scalar("validation/loss", self.given_loss),
-                                        tf.contrib.summary.scalar("validation/voicing_recall", self.given_vr),
-                                        tf.contrib.summary.scalar("validation/voicing_false_alarm", self.given_vfa),
-                                        tf.contrib.summary.scalar("validation/raw_pitch_accuracy", self.given_rpa),
-                                        tf.contrib.summary.scalar("validation/raw_chroma_accuracy", self.given_rca),
-                                        tf.contrib.summary.scalar("validation/overall_accuracy", self.given_oa),
-                                        ]
+                tf.contrib.summary.scalar("validation/loss", self.given_loss),
+                tf.contrib.summary.scalar("validation/voicing_recall", self.given_vr),
+                tf.contrib.summary.scalar("validation/voicing_false_alarm", self.given_vfa),
+                tf.contrib.summary.scalar("validation/raw_pitch_accuracy", self.given_rpa),
+                tf.contrib.summary.scalar("validation/raw_chroma_accuracy", self.given_rca),
+                tf.contrib.summary.scalar("validation/overall_accuracy", self.given_oa),
+            ]
 
 
     def _evaluate_handle(self, dataset, handle, dataset_name=None, visual_output=False, print_detailed=False):
@@ -287,7 +293,7 @@ class NetworkMelody(Network):
         reference = []
         estimation = []
 
-        estimations = self._predict_handle(handle)
+        estimations, additional = self._predict_handle(handle, [self.loss])
 
         for uid, (est_time, est_freq) in estimations.items():
             aa = dataset.get_annotated_audio_by_uid(uid)
@@ -310,6 +316,7 @@ class NetworkMelody(Network):
 
         # write evaluation metrics to tf summary
         summaries = {
+            self.given_loss: np.mean(additional),
             self.given_vr: metrics['Voicing Recall'],
             self.given_vfa: metrics['Voicing False Alarm'],
             self.given_rpa: metrics['Raw Pitch Accuracy'],

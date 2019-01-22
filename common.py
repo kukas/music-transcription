@@ -30,11 +30,11 @@ def prepare_mdb_synth_stems():
     medley_split = get_medley_split()
 
     def mdb_split(name):
-        gen = datasets.mdb_stem_synth.generator("data/MDB-stem-synth/MedleyDB/")
+        gen = datasets.mdb_stem_synth.generator("data/MDB-stem-synth/")
         return filter(lambda x: x.uid[:-len("_STEM_xx")] in medley_split[name], gen)
 
-    train_data = datasets.load_melody_dataset(datasets.medleydb.prefix, mdb_split("train"))
-    valid_data = datasets.load_melody_dataset(datasets.medleydb.prefix, mdb_split("validation"))
+    train_data = datasets.load_melody_dataset(datasets.mdb_stem_synth.prefix, mdb_split("train"))
+    valid_data = datasets.load_melody_dataset(datasets.mdb_stem_synth.prefix, mdb_split("validation"))
     small_validation_data = [
         valid_data[3].slice(15, 20.8),
         valid_data[9].slice(56, 61.4),
