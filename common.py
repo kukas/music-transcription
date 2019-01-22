@@ -3,14 +3,14 @@ import json
 import datasets
 import datetime
 
-def get_medley_split():
+def get_medleydb_split():
     # For MDB and MDB synth we use the train/validation/test split according to deepsalience paper
     with open("data/MedleyDB/dataset_ismir_split.json") as f:
         medley_split = json.load(f)
     return medley_split
 
-def prepare_medley():
-    medley_split = get_medley_split()
+def prepare_medleydb():
+    medley_split = get_medleydb_split()
 
     def mdb_split(name):
         gen = datasets.medleydb.generator("data/MedleyDB/MedleyDB/")
@@ -26,8 +26,23 @@ def prepare_medley():
 
     return train_data, valid_data, small_validation_data
 
-def prepare_mdb_synth_stems():
-    medley_split = get_medley_split()
+def prepare_mdb_melody_synth():
+    medley_split = get_medleydb_split()
+
+    def mdb_split(name):
+        gen = datasets.mdb_stem_synth.generator("data/MDB-melody-synth/")
+        return filter(lambda x: x.uid in medley_split[name], gen)
+
+    train_data = datasets.load_melody_dataset(datasets.mdb_melody_synth.prefix, mdb_split("train"))
+    valid_data = datasets.load_melody_dataset(datasets.mdb_melody_synth.prefix, mdb_split("validation"))
+    small_validation_data = [
+        valid_data[3].slice(0, 40),
+    ]
+
+    return train_data, valid_data, small_validation_data
+
+def prepare_mdb_stem_synth():
+    medley_split = get_medleydb_split()
 
     def mdb_split(name):
         gen = datasets.mdb_stem_synth.generator("data/MDB-stem-synth/")

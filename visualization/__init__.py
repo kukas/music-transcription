@@ -1,10 +1,14 @@
 import librosa
 import librosa.display
 
+from io import BytesIO
+
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy
+
+import tensorflow as tf
 
 from IPython.display import Audio
 
@@ -55,6 +59,17 @@ def fig2data(fig):
     data = data.reshape(fig.canvas.get_width_height()[::-1] + (4,))
     data = np.roll(data, 3, axis=2)
     return data
+
+
+def fig2summary(fig):
+    # Write the image to a string
+    s = BytesIO()
+    fig.savefig(s, format='png')
+    shape = fig.canvas.get_width_height()
+    img_sum = tf.Summary.Image(encoded_image_string=s.getvalue(),
+                               width=shape[0], height=shape[1])
+
+    return img_sum
 
 def draw_spectrum(audio, samplerate): 
     fig, ax = plt.subplots()

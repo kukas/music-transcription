@@ -1,3 +1,5 @@
+from collections import defaultdict
+from collections import namedtuple
 from math import floor, ceil
 import numpy as np
 
@@ -18,7 +20,7 @@ import os
 import datasets
 import pandas
 
-from collections import defaultdict
+VD = namedtuple("ValidationDataset", ["name", "dataset", "evaluate_every", "visual_output"])
 
 class Network:
     def __init__(self, threads, seed=42):
@@ -49,9 +51,6 @@ class Network:
         self.dataset_preload_hook = dataset_preload_hook
         self.dataset_transform = dataset_transform
 
-        # save the model function for easier reproducibility
-        self.save_model_fnc(create_model)
-
         with self.session.graph.as_default():
             # Inputs
             self.handle = tf.placeholder(tf.string, shape=[])
@@ -69,6 +68,8 @@ class Network:
 
             self.is_training = tf.placeholder(tf.bool, [], name="is_training")
 
+            self.global_step = tf.train.create_global_step()
+
             # lowpriority TODO: použít booleanmask, abych pak nemusel odstraňovat ty nulové anotace
             # self.ref_notes_sparse = tf.reduce_sum(tf.one_hot(self.annotations, self.note_range), axis=2)
             # sometimes there are identical notes in annotations (played by two different instruments)
@@ -84,46 +85,53 @@ class Network:
 
             create_model(self, args)
 
+            print("Total parameter count:", np.sum([np.prod(v.get_shape().as_list()) for v in tf.trainable_variables()]))
+
             assert self.est_notes is not None
             assert self.loss is not None
             assert self.training is not None
 
             self.saver = tf.train.Saver()
 
-            summary_writer = tf.contrib.summary.create_file_writer(self.logdir, flush_millis=10 * 1000)
+            self.summary_writer = tf.summary.FileWriter(self.logdir)
 
             self.accuracy = None
             self.summaries = None
 
-            self._summaries(args, summary_writer)
+            self._summaries(args)
 
             assert self.accuracy is not None
             assert self.summaries is not None
 
+            # save the model function for easier reproducibility
+            self.save_model_fn(create_model)
+            self.save_hyperparams(args)
+
             if create_summaries:
-                create_summaries(self, args, summary_writer)
+                create_summaries(self, args)
 
             # Initialize variables
             self.session.run(tf.global_variables_initializer())
-            with summary_writer.as_default():
-                tf.contrib.summary.initialize(session=self.session, graph=self.session.graph)
 
             if os.path.exists(os.path.join(self.logdir, "model.ckpt")):
                 self.restore()
 
-    def _summaries(self, args, summary_writer):
+    def _summaries(self, args):
         raise NotImplementedError()
 
-    def train(self, train_dataset, valid_dataset, small_valid_dataset, epochs, eval_small_every_n_batches=3000, eval_every_n_batches=10000, save_every_n_batches=20000):
+    def train(self, train_dataset, epochs, validation_datasets, save_every_n_batches=20000):
+        validation_iterators = []
+        validation_handles = []
         with self.session.graph.as_default():
             train_iterator = train_dataset.dataset.make_initializable_iterator()
-            validation_iterator = valid_dataset.dataset.make_initializable_iterator()
-            small_validation_iterator = small_valid_dataset.dataset.make_initializable_iterator()
+            train_iterator_handle = self.session.run(train_iterator.string_handle())
 
-        train_iterator_handle = self.session.run(train_iterator.string_handle())
-        validation_iterator_handle = self.session.run(validation_iterator.string_handle())
-        small_validation_iterator_handle = self.session.run(small_validation_iterator.string_handle())
+            for vd in validation_datasets:
+                it = vd.dataset.dataset.make_initializable_iterator()
+                validation_iterators.append(it)
+                validation_handles.append(self.session.run(it.string_handle()))
 
+        
         b = 0
         timer = time.time()
         for i in range(epochs):
@@ -136,7 +144,8 @@ class Network:
                 }
 
                 try:
-                    accuracy, loss, _, _ = self.session.run([self.accuracy, self.loss, self.training, self.summaries["train"]], feed_dict)
+                    accuracy, loss, _, summary, step = self.session.run([self.accuracy, self.loss, self.training, self.summaries, self.global_step], feed_dict)
+                    self.summary_writer.add_summary(summary, step)
                 except tf.errors.OutOfRangeError:
                     break
 
@@ -149,17 +158,12 @@ class Network:
                     print("b {0}; t {1:.2f}; acc {2:.2f}; loss {3:.2f}".format(b, time.time() - timer, accuracy, loss))
                     timer = time.time()
 
-                if b % eval_small_every_n_batches == 0:
-                    self.session.run(small_validation_iterator.initializer)
-                    oa, rpa, vr, loss = self._evaluate_handle(small_valid_dataset, small_validation_iterator_handle, dataset_name="validation_small", visual_output=True)
-                    print("small_validation: t {:.2f}, OA: {:.2f}, RPA: {:.2f}, VR: {:.2f}, Loss: {:.2f}".format(time.time() - timer, oa, rpa, vr, loss))
-                    timer = time.time()
-
-                if b % eval_every_n_batches == 0:
-                    self.session.run(validation_iterator.initializer)
-                    oa, rpa, vr, loss = self._evaluate_handle(valid_dataset, validation_iterator_handle, dataset_name="validation")
-                    print("validation: t {:.2f}, OA: {:.2f}, RPA: {:.2f}, VR: {:.2f}, Loss: {:.2f}".format(time.time() - timer, oa, rpa, vr, loss))
-                    timer = time.time()
+                for vd, iterator, handle in zip(validation_datasets, validation_iterators, validation_handles):
+                    if b % vd.evaluate_every == 0:
+                        self.session.run(iterator.initializer)
+                        oa, rpa, vr, loss = self._evaluate_handle(vd.dataset, handle, dataset_name=vd.name, visual_output=vd.visual_output)
+                        print("{}: t {:.2f}, OA: {:.2f}, RPA: {:.2f}, VR: {:.2f}, Loss: {:.2f}".format(vd.name, time.time() - timer, oa, rpa, vr, loss))
+                        timer = time.time()
 
                 if b % save_every_n_batches == 0:
                     self.save()
@@ -221,11 +225,19 @@ class Network:
 
         return self._evaluate_handle(dataset, handle, **kwargs)
 
-    def save_model_fnc(self, create_model):
-        plaintext = inspect.getsource(create_model)
-        if not os.path.exists(self.logdir): os.mkdir(self.logdir)
-        out = open(self.logdir+"/model_fnc.py", "a")
-        out.write(plaintext)
+    def save_model_fn(self, create_model):
+        source = inspect.getsource(create_model)
+        source = "\t"+source.replace("\n", "\t\n").replace("    ", "\t")
+        text = tf.convert_to_tensor(source)
+        self.summary_writer.add_summary(self.session.run(tf.summary.text("model_fn", text)))
+
+        # if not os.path.exists(self.logdir): os.mkdir(self.logdir)
+        # out = open(self.logdir+"/model_fnc.py", "a")
+        # out.write(plaintext)
+
+    def save_hyperparams(self, args):
+        text = tf.convert_to_tensor([[str(k), str(v)] for k, v in args.items()])
+        self.summary_writer.add_summary(self.session.run(tf.summary.text("hyperparameters", text)))
 
     def save(self):
         save_path = self.saver.save(self.session, self.logdir+"/model.ckpt")
@@ -235,10 +247,9 @@ class Network:
         print("Model restored from path:", self.logdir)
 
 class NetworkMelody(Network):
-    def _summaries(self, args, summary_writer):
+    def _summaries(self, args):
         # batch metrics
         with tf.name_scope("metrics"):
-            print(self.annotations.shape, self.est_notes.shape)
             correct = tf.equal(self.annotations[:, 0], self.est_notes)
             voiced = tf.greater(self.annotations[:, 0], 0)
             voiced_est = tf.greater(self.est_notes, 0)
@@ -254,52 +265,22 @@ class NetworkMelody(Network):
             acc_denom = n_est_sum + n_ref_sum - correct_voiced_sum
             self.accuracy = safe_div(correct_voiced_sum, acc_denom)
 
-        self.summaries = {}
-        with summary_writer.as_default(), tf.contrib.summary.record_summaries_every_n_global_steps(200):
-            self.summaries["train"] = [
-                tf.contrib.summary.scalar("train/loss", self.loss),
-                tf.contrib.summary.scalar("train/precision", self.precision),
-                tf.contrib.summary.scalar("train/recall", self.recall),
-                tf.contrib.summary.scalar("train/accuracy", self.accuracy)
-            ]
 
-        with summary_writer.as_default(), tf.contrib.summary.always_record_summaries():
-            self.given_loss = tf.placeholder(tf.float32, [], name="given_loss")
-            self.given_vr = tf.placeholder(tf.float32, [], name="given_vr")
-            self.given_vfa = tf.placeholder(tf.float32, [], name="given_vfa")
-            self.given_rpa = tf.placeholder(tf.float32, [], name="given_rpa")
-            self.given_rca = tf.placeholder(tf.float32, [], name="given_rca")
-            self.given_oa = tf.placeholder(tf.float32, [], name="given_oa")
-
-            self.image1 = tf.placeholder(tf.uint8, [None, None, 4], name="image1")
-            image1 = tf.expand_dims(self.image1, 0)
-
-            self.summaries["validation_small"] = [
-                tf.contrib.summary.image("validation_small/image1", image1),
-                tf.contrib.summary.scalar("validation_small/loss", self.given_loss),
-                tf.contrib.summary.scalar("validation_small/voicing_recall", self.given_vr),
-                tf.contrib.summary.scalar("validation_small/voicing_false_alarm", self.given_vfa),
-                tf.contrib.summary.scalar("validation_small/raw_pitch_accuracy", self.given_rpa),
-                tf.contrib.summary.scalar("validation_small/raw_chroma_accuracy", self.given_rca),
-                tf.contrib.summary.scalar("validation_small/overall_accuracy", self.given_oa),
-            ]
-
-            self.summaries["validation"] = [
-                tf.contrib.summary.scalar("validation/loss", self.given_loss),
-                tf.contrib.summary.scalar("validation/voicing_recall", self.given_vr),
-                tf.contrib.summary.scalar("validation/voicing_false_alarm", self.given_vfa),
-                tf.contrib.summary.scalar("validation/raw_pitch_accuracy", self.given_rpa),
-                tf.contrib.summary.scalar("validation/raw_chroma_accuracy", self.given_rca),
-                tf.contrib.summary.scalar("validation/overall_accuracy", self.given_oa),
-            ]
-
+            self.summaries = tf.summary.merge(
+                (
+                    tf.summary.scalar("train/loss", self.loss),
+                    tf.summary.scalar("train/precision", self.precision),
+                    tf.summary.scalar("train/recall", self.recall),
+                    tf.summary.scalar("train/accuracy", self.accuracy)
+                )
+            )
 
     def _evaluate_handle(self, dataset, handle, dataset_name=None, visual_output=False, print_detailed=False):
         all_metrics = []
         reference = []
         estimation = []
 
-        estimations, additional = self._predict_handle(handle, [self.loss])
+        estimations, additional = self._predict_handle(handle, [self.loss, self.])
 
         for uid, (est_time, est_freq) in estimations.items():
             aa = dataset.get_annotated_audio_by_uid(uid)
@@ -322,14 +303,19 @@ class NetworkMelody(Network):
 
         # write evaluation metrics to tf summary
         loss = np.mean(additional)
-        summaries = {
-            self.given_loss: loss,
-            self.given_vr: metrics['Voicing Recall'],
-            self.given_vfa: metrics['Voicing False Alarm'],
-            self.given_rpa: metrics['Raw Pitch Accuracy'],
-            self.given_rca: metrics['Raw Chroma Accuracy'],
-            self.given_oa: metrics['Overall Accuracy'],
-        }
+        summaries = [
+            ("loss", loss),
+            ("voicing_recall", metrics['Voicing Recall']),
+            ("voicing_false_alarm", metrics['Voicing False Alarm']),
+            ("raw_pitch_accuracy", metrics['Raw Pitch Accuracy']),
+            ("raw_chroma_accuracy", metrics['Raw Chroma Accuracy']),
+            ("overall_accuracy", metrics['Overall Accuracy']),
+        ]
+        global_step = tf.train.global_step(self.session, self.global_step)
+        prefix = "valid_{}/".format(dataset_name)
+        if dataset_name is not None:
+            for name, metric in summaries:
+                self.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+name, simple_value=metric)]), global_step)
 
         if visual_output:
             title = "OA: {:.2f}, RPA: {:.2f}, RCA: {:.2f}, VR: {:.2f}, VFA: {:.2f}".format(
@@ -342,13 +328,11 @@ class NetworkMelody(Network):
             reference = datasets.common.melody_to_multif0(np.concatenate(reference))
             estimation = datasets.common.melody_to_multif0(np.concatenate(estimation))
             fig = vis.draw_notes(reference, estimation, title=title)
-            summaries[self.image1] = vis.fig2data(fig)
+            img_summary = vis.fig2summary(fig)
+            self.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+"notes", image=img_summary)]), global_step)
 
-            # suppress inline mode
-            if not print_detailed:
-                plt.close()
-
-        if dataset_name is not None:
-            self.session.run(self.summaries[dataset_name], summaries)
+        #     # suppress inline mode
+        #     if not print_detailed:
+        #         plt.close()
 
         return metrics['Overall Accuracy'], metrics['Raw Pitch Accuracy'], metrics['Voicing Recall'], loss
