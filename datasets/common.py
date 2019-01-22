@@ -8,7 +8,6 @@ from collections import namedtuple
 
 Track = namedtuple("Track", ("audio_path", "annot_path", "uid"))
 
-
 def mirex_melody_dataset_generator(dataset_audio_path, dataset_annot_path, annot_extension=".csv"):
     uids = [f[:-4] for f in os.listdir(dataset_audio_path) if f.endswith('.wav')]
 
@@ -28,8 +27,9 @@ def load_melody_dataset(name, dataset_iterator):
         # prepare annotation
         annotation = None
         if annot_path is not None:
-                times, freqs = mir_eval.io.load_time_series(annot_path, delimiter='\s+|,')
-                annotation = Annotation(times, melody_to_multif0(freqs))
+                times, freqs = mir_eval.io.load_time_series(annot_path, delimiter=r'\s+|,')
+                freqs = np.expand_dims(freqs, 1)
+                annotation = Annotation(times, freqs)
 
         annotated_audios.append(AnnotatedAudio(annotation, audio))
 
@@ -42,15 +42,21 @@ def load_melody_dataset(name, dataset_iterator):
 def melody_to_multif0(values):
     return [[x] if x > 0 else [] for x in values]
 
-
 def multif0_to_melody(values):
-    return [x[0] if len(x) > 0 else 0 for x in values]
+    return np.array([x[0] if len(x) > 0 else 0 for x in values])
 
+def _hz_to_midi_safe(x):
+    if x > 0:
+        return mir_eval.util.hz_to_midi(x)
+    else:
+        return 0
 
-def hz_to_midi_safe(freqs):
-    notes = list(map(lambda x: mir_eval.util.hz_to_midi(x) if x > 0 else 0, freqs))
-    return np.array(notes)
+hz_to_midi_safe = np.vectorize(_hz_to_midi_safe)
 
-def midi_to_hz_safe(notes):
-    freqs = list(map(lambda x: mir_eval.util.midi_to_hz(x) if x > 0 else 0, notes))
-    return np.array(freqs)
+def _midi_to_hz_safe(x):
+    if x > 0:
+        return mir_eval.util.midi_to_hz(x)
+    else:
+        return 0
+
+midi_to_hz_safe = np.vectorize(_hz_to_midi_safe)

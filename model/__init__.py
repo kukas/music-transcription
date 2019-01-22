@@ -59,6 +59,9 @@ class Network:
 
             self.window_int16, self.annotations, self.times, self.audio_uid = self.iterator.get_next()
 
+            # round the annotations
+            self.annotations = tf.cast(tf.round(self.annotations), tf.int32)
+
             self.window = tf.cast(self.window_int16, tf.float32)/32768.0
 
             # if self.spectrogram_shape is not None:
@@ -67,12 +70,12 @@ class Network:
             self.is_training = tf.placeholder(tf.bool, [], name="is_training")
 
             # lowpriority TODO: použít booleanmask, abych pak nemusel odstraňovat ty nulové anotace
-            self.ref_notes = tf.reduce_sum(tf.one_hot(self.annotations, self.note_range), axis=2)
+            # self.ref_notes_sparse = tf.reduce_sum(tf.one_hot(self.annotations, self.note_range), axis=2)
             # sometimes there are identical notes in annotations (played by two different instruments)
-            self.ref_notes = tf.cast(tf.greater(self.ref_notes, 0), tf.float32)
+            # self.ref_notes_sparse = tf.cast(tf.greater(self.ref_notes_sparse, 0), tf.float32)
             # annotations are padded with zeros, so we manually remove this additional note
-            dims = tf.shape(self.ref_notes)
-            self.ref_notes = tf.concat([tf.zeros([dims[0], dims[1], 1]), self.ref_notes[:,:,1:]], axis=2)
+            # dims = tf.shape(self.ref_notes_sparse)
+            # self.ref_notes_sparse = tf.concat([tf.zeros([dims[0], dims[1], 1]), self.ref_notes_sparse[:,:,1:]], axis=2)
 
             # create_model has to provide these values:
             self.est_notes = None
@@ -142,14 +145,14 @@ class Network:
 
                 if b % eval_small_every_n_batches == 0:
                     self.session.run(small_validation_iterator.initializer)
-                    oa, rpa, vr = self._evaluate_handle(small_valid_dataset, small_validation_iterator_handle, dataset_name="validation_small", visual_output=True)
-                    print("small_validation: t {:.2f}, OA: {:.2f}, RPA: {:.2f}, VR: {:.2f}".format(time.time() - timer, oa, rpa, vr))
+                    oa, rpa, vr, loss = self._evaluate_handle(small_valid_dataset, small_validation_iterator_handle, dataset_name="validation_small", visual_output=True)
+                    print("small_validation: t {:.2f}, OA: {:.2f}, RPA: {:.2f}, VR: {:.2f}, Loss: {:.2f}".format(time.time() - timer, oa, rpa, vr, loss))
                     timer = time.time()
 
                 if b % eval_every_n_batches == 0:
                     self.session.run(validation_iterator.initializer)
-                    oa, rpa, vr = self._evaluate_handle(valid_dataset, validation_iterator_handle, dataset_name="validation")
-                    print("validation: t {:.2f}, OA: {:.2f}, RPA: {:.2f}, VR: {:.2f}".format(time.time() - timer, oa, rpa, vr))
+                    oa, rpa, vr, loss = self._evaluate_handle(valid_dataset, validation_iterator_handle, dataset_name="validation")
+                    print("validation: t {:.2f}, OA: {:.2f}, RPA: {:.2f}, VR: {:.2f}, Loss: {:.2f}".format(time.time() - timer, oa, rpa, vr, loss))
                     timer = time.time()
 
                 if b % save_every_n_batches == 0:
@@ -194,7 +197,7 @@ class Network:
             estimations[uid] = (est_time, est_freq)
 
         if additional_fetches:
-            return estimations, additional_fetches
+            return estimations, additional
 
         return estimations
 
@@ -207,7 +210,7 @@ class Network:
 
         return self._predict_handle(handle)
     
-    def _evaluate_handle(self, dataset, handle):
+    def _evaluate_handle(self, dataset, handle, dataset_name=None, visual_output=None, print_detailed=False):
         raise NotImplementedError()
 
     def evaluate(self, dataset, **kwargs):
@@ -234,21 +237,17 @@ class NetworkMelody(Network):
     def _summaries(self, args, summary_writer):
         # batch metrics
         with tf.name_scope("metrics"):
-            # TODO: opravit, pořád nefunguje
-            # ref_notes_b = tf.cast(self.ref_notes, tf.bool)
-            # est_notes_b = tf.cast(self.est_notes, tf.bool)
-            true_positive_sum = tf.constant(1, dtype=tf.int64)
-            # true_positive_sum = tf.count_nonzero(tf.equal(self.ref_notes, self.est_notes))
-            n_ref_sum = tf.count_nonzero(self.ref_notes != 0)
-            n_est_sum = tf.count_nonzero(self.est_notes != 0)
+            correct_voiced_sum = tf.count_nonzero(tf.logical_and(tf.equal(self.annotations, self.est_notes), tf.greater(self.annotations, 0)))
+            n_ref_sum = tf.count_nonzero(tf.greater(self.annotations, 0))
+            n_est_sum = tf.count_nonzero(tf.greater(self.est_notes, 0))
 
             def safe_div(numerator, denominator):
                 return tf.cond(denominator > 0, lambda: numerator/denominator, lambda: tf.constant(0, dtype=tf.float64))
 
-            self.precision = safe_div(true_positive_sum, n_est_sum)
-            self.recall = safe_div(true_positive_sum, n_ref_sum)
-            acc_denom = n_est_sum + n_ref_sum - true_positive_sum
-            self.accuracy = safe_div(true_positive_sum, acc_denom)
+            self.precision = safe_div(correct_voiced_sum, n_est_sum)
+            self.recall = safe_div(correct_voiced_sum, n_ref_sum)
+            acc_denom = n_est_sum + n_ref_sum - correct_voiced_sum
+            self.accuracy = safe_div(correct_voiced_sum, acc_denom)
 
         self.summaries = {}
         with summary_writer.as_default(), tf.contrib.summary.record_summaries_every_n_global_steps(200):
@@ -298,16 +297,16 @@ class NetworkMelody(Network):
         for uid, (est_time, est_freq) in estimations.items():
             aa = dataset.get_annotated_audio_by_uid(uid)
 
-            ref_time = np.array(aa.annotation.times)
-            ref_freq = np.array(datasets.common.multif0_to_melody(aa.annotation.freqs))
+            ref_time = aa.annotation.times
+            ref_freq = np.squeeze(aa.annotation.freqs, 1)
 
             metrics = mir_eval.melody.evaluate(ref_time, ref_freq, est_time, est_freq)
             metrics["Track"] = uid
             all_metrics.append(metrics)
 
             if visual_output:
-                reference += list(aa.annotation.notes)
-                estimation += list(datasets.common.hz_to_midi_safe(est_freq))
+                reference.append(aa.annotation.notes)
+                estimation.append(datasets.common.hz_to_midi_safe(est_freq))
 
         metrics = pandas.DataFrame(all_metrics).mean()
 
@@ -315,8 +314,9 @@ class NetworkMelody(Network):
             print(metrics)
 
         # write evaluation metrics to tf summary
+        loss = np.mean(additional)
         summaries = {
-            self.given_loss: np.mean(additional),
+            self.given_loss: loss,
             self.given_vr: metrics['Voicing Recall'],
             self.given_vfa: metrics['Voicing False Alarm'],
             self.given_rpa: metrics['Raw Pitch Accuracy'],
@@ -332,8 +332,8 @@ class NetworkMelody(Network):
                 metrics['Voicing Recall'],
                 metrics['Voicing False Alarm']
                 )
-            
-            estimation = datasets.common.melody_to_multif0(estimation)
+            reference = datasets.common.melody_to_multif0(np.concatenate(reference))
+            estimation = datasets.common.melody_to_multif0(np.concatenate(estimation))
             fig = vis.draw_notes(reference, estimation, title=title)
             summaries[self.image1] = vis.fig2data(fig)
 
@@ -344,4 +344,4 @@ class NetworkMelody(Network):
         if dataset_name is not None:
             self.session.run(self.summaries[dataset_name], summaries)
 
-        return metrics['Overall Accuracy'], metrics['Raw Pitch Accuracy'], metrics['Voicing Recall']
+        return metrics['Overall Accuracy'], metrics['Raw Pitch Accuracy'], metrics['Voicing Recall'], loss

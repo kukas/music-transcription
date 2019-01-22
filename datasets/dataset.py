@@ -5,6 +5,10 @@ from resampy import resample
 import librosa
 import tensorflow as tf
 
+import datasets
+
+# from .common import midi_to_hz_safe, hz_to_midi_safe
+
 PROCESSED_FILES_PATH = "./processed"
 
 def check_processed_dir():
@@ -183,10 +187,10 @@ class Annotation:
         self.notes = notes
 
         if freqs is None:
-            self.freqs = [librosa.core.midi_to_hz(np.array(notes_frame)) for notes_frame in notes]
+            self.freqs = datasets.common.midi_to_hz_safe(self.notes)
 
         if notes is None:
-            self.notes = [librosa.core.hz_to_midi(np.array(freqs_frame)) for freqs_frame in freqs]
+            self.notes = datasets.common.hz_to_midi_safe(self.freqs)
         
     @property
     def max_polyphony(self):
@@ -236,7 +240,7 @@ class AADataset:
 
         output_types, output_shapes = zip(*[
             (tf.int16,   tf.TensorShape([self.window_size])),
-            (tf.int32,   tf.TensorShape([self.annotations_per_window, None])),
+            (tf.float32, tf.TensorShape([self.annotations_per_window, None])),
             (tf.float32, tf.TensorShape([self.annotations_per_window])),
             (tf.string,  None),
         ])
@@ -270,9 +274,7 @@ class AADataset:
 
     def _create_example(self, aa, annotation_start):
         annotation_end = annotation_start + self.annotations_per_window
-        annotations_ragged = aa.annotation.notes[annotation_start:annotation_end]
-        annotations_ragged = np.round(annotations_ragged)
-        annotations = [np.concatenate([annot, np.zeros(aa.annotation.max_polyphony - len(annot))]) for annot in annotations_ragged]
+        annotations = aa.annotation.notes[annotation_start:annotation_end]
         times = aa.annotation.times[annotation_start:annotation_end]
 
         window_start_sample = np.floor(times[0]*self.samplerate)
