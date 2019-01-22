@@ -25,7 +25,7 @@ def flatten(notesets):
     return indices, flatnotes
 
 def draw_notes(ref, est, style = ".", title = None):
-    fig, ax = plt.subplots(figsize=(12, 6))
+    fig, ax = plt.subplots(figsize=(16, 6))
     ax.set_ylim(0,128)
     if title:
         ax.set_title(title)

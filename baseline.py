@@ -11,16 +11,22 @@ def create_model(self, args):
     window = self.window[:, :-1]
     voicing_ref = tf.cast(tf.layers.flatten(tf.greater(annotations, 0)), tf.float32)
 
-    # Simple one layer model
-    dense = tf.layers.dense(window, 1024, activation=tf.nn.relu)
-    output_layer = tf.layers.dense(dense, self.note_range, activation=None)
+    melody = tf.layers.dense(self.window, 1024, activation=tf.nn.tanh)
+    output_layer = tf.layers.dense(melody, self.note_range, activation=None)
 
-    self.note_probabilites = tf.reshape(output_layer, [-1, self.annotations_per_window, self.note_range])
-    self.est_notes = tf.argmax(self.note_probabilites, axis=2, output_type=tf.int32)
-    
-    self.loss = tf.losses.sparse_softmax_cross_entropy(tf.layers.flatten(annotations), tf.layers.flatten(self.note_probabilites), weights=voicing_ref)
+    voicing = tf.layers.dense(self.window, 1024, activation=tf.nn.tanh)
+    voicing = tf.layers.dense(voicing, 1, activation=None)
+    voicing_est = tf.cast(tf.greater(voicing, 0), tf.int32)
 
-    self.training = tf.train.AdamOptimizer(0.0002).minimize(self.loss, global_step=self.global_step)
+    self.note_logits = tf.reshape(output_layer, [-1, self.annotations_per_window, self.note_range])
+    self.note_probabilities = tf.nn.softmax(self.note_logits)
+    self.est_notes = tf.argmax(self.note_logits, axis=2, output_type=tf.int32)
+    self.est_notes = self.est_notes * voicing_est
+
+    self.loss = tf.losses.sparse_softmax_cross_entropy(annotations, self.note_logits, weights=voicing_ref)
+    self.loss += tf.losses.sigmoid_cross_entropy(voicing_ref, voicing)
+
+    self.training = tf.train.AdamOptimizer().minimize(self.loss, global_step=self.global_step)
 
 args = {
     "threads": 6,
@@ -32,7 +38,7 @@ args = {
     "samplerate": 16000
 }
 
-name = common.name(args, "baseline")
+name = common.name(args, "baseline-tanh")
 print(name)
 
 # To restore model from a checkpoint
@@ -44,7 +50,7 @@ network = NetworkMelody(threads=args["threads"])
 with network.session.graph.as_default():
     preload_hook = lambda aa: aa.audio.load_resampled_audio(args["samplerate"])
     dataset_transform = lambda dataset: dataset.batch(128).prefetch(1)
-    dataset_transform_train = lambda dataset: dataset.shuffle(5000).batch(args["batch_size"]).prefetch(1)
+    dataset_transform_train = lambda dataset: dataset.shuffle(20000).batch(args["batch_size"]).prefetch(1)
 
     # # Prepare the data (and load annotations)
     # mdb_stem_synth_train, mdb_stem_synth_validation, mdb_stem_synth_small_validation = common.prepare_mdb_stem_synth()
@@ -63,7 +69,7 @@ with network.session.graph.as_default():
     network.construct(args, create_model, train_dataset.dataset.output_types, train_dataset.dataset.output_shapes, dataset_preload_hook=preload_hook, dataset_transform=dataset_transform)
 
 
-validation_datasets=[
+validation_datasets = [
     # VD(datasets.mdb_stem_synth.prefix, mdb_stem_synth_validation_dataset, 10000, False),
     # VD(datasets.mdb_stem_synth.prefix+"_small", mdb_stem_synth_small_validation_dataset, 1000, True),
     VD(datasets.medleydb.prefix, medleydb_validation_dataset, 10000, False),

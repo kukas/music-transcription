@@ -79,6 +79,7 @@ class Network:
             # self.ref_notes_sparse = tf.concat([tf.zeros([dims[0], dims[1], 1]), self.ref_notes_sparse[:,:,1:]], axis=2)
 
             # create_model has to provide these values:
+            self.note_probabilities = None
             self.est_notes = None
             self.loss = None
             self.training = None
@@ -87,6 +88,7 @@ class Network:
 
             print("Total parameter count:", np.sum([np.prod(v.get_shape().as_list()) for v in tf.trainable_variables()]))
 
+            assert self.note_probabilities is not None and self.note_probabilities.shape.as_list() == [None, self.annotations_per_window, self.note_range]
             assert self.est_notes is not None
             assert self.loss is not None
             assert self.training is not None
@@ -280,7 +282,7 @@ class NetworkMelody(Network):
         reference = []
         estimation = []
 
-        estimations, additional = self._predict_handle(handle, [self.loss, self.])
+        estimations, additional = self._predict_handle(handle, [self.loss, self.note_probabilities])
 
         for uid, (est_time, est_freq) in estimations.items():
             aa = dataset.get_annotated_audio_by_uid(uid)
@@ -302,7 +304,8 @@ class NetworkMelody(Network):
             print(metrics)
 
         # write evaluation metrics to tf summary
-        loss = np.mean(additional)
+        
+        loss = np.mean([loss for loss, _ in additional])
         summaries = [
             ("loss", loss),
             ("voicing_recall", metrics['Voicing Recall']),
@@ -330,6 +333,14 @@ class NetworkMelody(Network):
             fig = vis.draw_notes(reference, estimation, title=title)
             img_summary = vis.fig2summary(fig)
             self.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+"notes", image=img_summary)]), global_step)
+
+            note_probabilities = np.concatenate(np.concatenate([p for _, p in additional]), axis=0).T
+            # note_probabilities = np.flip(note_probabilities, 0)
+            fig, ax = plt.subplots(figsize=(16, 6))
+            ax.set(xlabel='frame', ylabel='midi note')
+            ax.imshow(note_probabilities, aspect="auto", origin='lower')
+            img_summary = vis.fig2summary(fig)
+            self.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+"probs", image=img_summary)]), global_step)
 
         #     # suppress inline mode
         #     if not print_detailed:
