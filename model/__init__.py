@@ -84,15 +84,21 @@ class Network:
 
             create_model(self, args)
 
-            assert self.est_notes != None
-            assert self.loss != None
-            assert self.training != None
+            assert self.est_notes is not None
+            assert self.loss is not None
+            assert self.training is not None
 
             self.saver = tf.train.Saver()
 
             summary_writer = tf.contrib.summary.create_file_writer(self.logdir, flush_millis=10 * 1000)
 
+            self.accuracy = None
+            self.summaries = None
+
             self._summaries(args, summary_writer)
+
+            assert self.accuracy is not None
+            assert self.summaries is not None
 
             if create_summaries:
                 create_summaries(self, args, summary_writer)
@@ -232,9 +238,13 @@ class NetworkMelody(Network):
     def _summaries(self, args, summary_writer):
         # batch metrics
         with tf.name_scope("metrics"):
-            correct_voiced_sum = tf.count_nonzero(tf.logical_and(tf.equal(self.annotations, self.est_notes), tf.greater(self.annotations, 0)))
-            n_ref_sum = tf.count_nonzero(tf.greater(self.annotations, 0))
-            n_est_sum = tf.count_nonzero(tf.greater(self.est_notes, 0))
+            print(self.annotations.shape, self.est_notes.shape)
+            correct = tf.equal(self.annotations[:, 0], self.est_notes)
+            voiced = tf.greater(self.annotations[:, 0], 0)
+            voiced_est = tf.greater(self.est_notes, 0)
+            correct_voiced_sum = tf.count_nonzero(tf.logical_and(correct, voiced))
+            n_ref_sum = tf.count_nonzero(voiced)
+            n_est_sum = tf.count_nonzero(voiced_est)
 
             def safe_div(numerator, denominator):
                 return tf.cond(denominator > 0, lambda: numerator/denominator, lambda: tf.constant(0, dtype=tf.float64))
@@ -246,10 +256,12 @@ class NetworkMelody(Network):
 
         self.summaries = {}
         with summary_writer.as_default(), tf.contrib.summary.record_summaries_every_n_global_steps(200):
-            self.summaries["train"] = [tf.contrib.summary.scalar("train/loss", self.loss),
-                                        tf.contrib.summary.scalar("train/precision", self.precision),
-                                        tf.contrib.summary.scalar("train/recall", self.recall),
-                                        tf.contrib.summary.scalar("train/accuracy", self.accuracy), ]
+            self.summaries["train"] = [
+                tf.contrib.summary.scalar("train/loss", self.loss),
+                tf.contrib.summary.scalar("train/precision", self.precision),
+                tf.contrib.summary.scalar("train/recall", self.recall),
+                tf.contrib.summary.scalar("train/accuracy", self.accuracy)
+            ]
 
         with summary_writer.as_default(), tf.contrib.summary.always_record_summaries():
             self.given_loss = tf.placeholder(tf.float32, [], name="given_loss")
