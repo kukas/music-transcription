@@ -188,7 +188,9 @@ class Annotation:
         if notes is None:
             self.notes = [librosa.core.hz_to_midi(np.array(freqs_frame)) for freqs_frame in freqs]
         
-        self.max_polyphony = np.max([len(notes_frame) for notes_frame in self.notes])
+    @property
+    def max_polyphony(self):
+        return np.max([len(notes_frame) for notes_frame in self.notes])
 
     def get_frame_width(self):
         if len(self.times) == 0:
@@ -242,6 +244,10 @@ class AADataset:
         dataset = tf.data.Dataset.from_generator(self._generator, output_types, output_shapes)
 
         self.dataset = dataset if dataset_transform is None else dataset_transform(dataset)
+        print("dataset duration:", self.total_duration)
+        polyphony_counts = [aa.annotation.max_polyphony for aa in self._annotated_audios]
+        print("max. polyphony:", np.max(polyphony_counts))
+        print("min. polyphony:", np.min(polyphony_counts))
 
     @property
     def total_duration(self):
