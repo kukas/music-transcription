@@ -107,7 +107,7 @@ class Network:
 
     def train(self, train_dataset, valid_dataset, small_valid_dataset, epochs, eval_small_every_n_batches=3000, eval_every_n_batches=10000, save_every_n_batches=20000):
         with self.session.graph.as_default():
-            train_iterator = train_dataset.dataset.make_one_shot_iterator()
+            train_iterator = train_dataset.dataset.make_initializable_iterator()
             validation_iterator = valid_dataset.dataset.make_initializable_iterator()
             small_validation_iterator = small_valid_dataset.dataset.make_initializable_iterator()
 
@@ -118,6 +118,7 @@ class Network:
         b = 0
         timer = time.time()
         for i in range(epochs):
+            self.session.run(train_iterator.initializer)
             print("=== epoch", i+1, "===")
             while True:
                 feed_dict = {
