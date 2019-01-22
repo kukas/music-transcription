@@ -17,7 +17,6 @@ def prepare_medley():
         valid_data[3].slice(15, 20.8),
         valid_data[9].slice(56, 61.4),
         valid_data[5].slice(55.6, 61.6),
-        valid_data[2].slice(17.65, 27),
     ]
 
     return train_data, valid_data, small_validation_data
