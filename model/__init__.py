@@ -177,23 +177,18 @@ class Network:
             except tf.errors.OutOfRangeError:
                 break
 
+            additional.append(fetches[3:])
             # iterates through the batch output
-            for est_notes_window, times_window, uid, rest in zip(*(fetches[:3]), fetches[3:]):
+            for est_notes_window, times_window, uid in zip(*fetches[:3]):
                 uid = uid.decode("utf-8")
-                # converts the sparse onehot/multihot vector to indices of ones
-                # est_notes = [[i for i, v in enumerate(est_notes_frame) if v == 1] for est_notes_frame in est_notes_window]
                 notes[uid].append(est_notes_window)
-                # TODO zrychlit
                 times[uid].append(times_window)
-
-                additional.append(rest)
 
         estimations = {}
         for uid in notes.keys():
             est_time = np.concatenate(times[uid])
             est_notes = np.concatenate(notes[uid])
-            est_freq = mir_eval.util.midi_to_hz(est_notes)
-            est_freq[est_notes==0] = 0
+            est_freq = datasets.common.midi_to_hz_safe(est_notes)
             estimations[uid] = (est_time, est_freq)
 
         if additional_fetches:
