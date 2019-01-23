@@ -1,4 +1,4 @@
-
+import tensorflow as tf
 import json
 import datasets
 import datetime
@@ -90,3 +90,19 @@ def name(args, prefix=""):
     args["logdir"] = "models/" + name
 
     return name
+
+
+def bn_conv(inputs, filters, size, strides, padding, activation=None, dilation_rate=1, training=False):
+    name = "bn_conv{}-f{}-s{}-dil{}-{}".format(size, filters, strides, dilation_rate, padding)
+    with tf.name_scope(name):
+        l = tf.layers.conv1d(inputs, filters, size, strides, padding, activation=None, use_bias=False, dilation_rate=dilation_rate)
+        l = tf.layers.batch_normalization(l, training=training)
+        if activation:
+            return activation(l)
+        else:
+            return l
+
+
+def conv(inputs, filters, size, strides, padding, activation=None, dilation_rate=1, training=False):
+    name = "conv{}-f{}-s{}-dil{}-{}".format(size, filters, strides, dilation_rate, padding)
+    return tf.layers.conv1d(inputs, filters, size, strides, padding, activation=activation, dilation_rate=dilation_rate, name=name)
