@@ -251,9 +251,9 @@ class AADataset:
 
         dataset = tf.data.Dataset.from_generator(self._generator, output_types, output_shapes)
 
-        self.dataset = dataset if dataset_transform is None else dataset_transform(dataset)
+        self.dataset = dataset if dataset_transform is None else dataset.apply(dataset_transform)
         print("dataset duration:", self.total_duration)
-        polyphony_counts = [aa.annotation.max_polyphony for aa in self._annotated_audios]
+        # polyphony_counts = [aa.annotation.max_polyphony for aa in self._annotated_audios]
         # print("max. polyphony:", np.max(polyphony_counts))
         # print("min. polyphony:", np.min(polyphony_counts))
 

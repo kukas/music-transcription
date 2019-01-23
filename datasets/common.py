@@ -51,7 +51,7 @@ def _hz_to_midi_safe(x):
     else:
         return 0
 
-hz_to_midi_safe = np.vectorize(_hz_to_midi_safe)
+hz_to_midi_safe = np.vectorize(_hz_to_midi_safe, otypes=[float])
 
 def _midi_to_hz_safe(x):
     if x > 0:
@@ -60,4 +60,4 @@ def _midi_to_hz_safe(x):
         return 0
 
 
-midi_to_hz_safe = np.vectorize(_midi_to_hz_safe)
+midi_to_hz_safe = np.vectorize(_midi_to_hz_safe, otypes=[float])
