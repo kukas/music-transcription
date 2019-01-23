@@ -3,13 +3,15 @@ import json
 import datasets
 import datetime
 
+
 def get_medleydb_split():
     # For MDB and MDB synth we use the train/validation/test split according to deepsalience paper
     with open("data/MedleyDB/dataset_ismir_split.json") as f:
         medley_split = json.load(f)
     return medley_split
 
-def prepare_medleydb():
+
+def prepare_medleydb(preload_fn):
     medley_split = get_medleydb_split()
 
     def mdb_split(name):
@@ -18,6 +20,10 @@ def prepare_medleydb():
 
     train_data = datasets.load_melody_dataset(datasets.medleydb.prefix, mdb_split("train"))
     valid_data = datasets.load_melody_dataset(datasets.medleydb.prefix, mdb_split("validation"))
+
+    for aa in train_data+valid_data:
+        preload_fn(aa)
+
     small_validation_data = [
         valid_data[3].slice(15, 20.8),
         valid_data[9].slice(56, 61.4),
@@ -26,7 +32,8 @@ def prepare_medleydb():
 
     return train_data, valid_data, small_validation_data
 
-def prepare_mdb_melody_synth():
+
+def prepare_mdb_melody_synth(preload_fn):
     medley_split = get_medleydb_split()
 
     def mdb_split(name):
@@ -35,13 +42,18 @@ def prepare_mdb_melody_synth():
 
     train_data = datasets.load_melody_dataset(datasets.mdb_melody_synth.prefix, mdb_split("train"))
     valid_data = datasets.load_melody_dataset(datasets.mdb_melody_synth.prefix, mdb_split("validation"))
+
+    for aa in train_data+valid_data:
+        preload_fn(aa)
+
     small_validation_data = [
         valid_data[3].slice(0, 40),
     ]
 
     return train_data, valid_data, small_validation_data
 
-def prepare_mdb_stem_synth():
+
+def prepare_mdb_stem_synth(preload_fn):
     medley_split = get_medleydb_split()
 
     def mdb_split(name):
@@ -50,8 +62,15 @@ def prepare_mdb_stem_synth():
 
     train_data = datasets.load_melody_dataset(datasets.mdb_stem_synth.prefix, mdb_split("train"))
     valid_data = datasets.load_melody_dataset(datasets.mdb_stem_synth.prefix, mdb_split("validation"))
+
+    for aa in train_data+valid_data:
+        preload_fn(aa)
+
     small_validation_data = [
-        valid_data[3].slice(0, 40),
+        valid_data[3].slice(30, 40),  # nějaká kytara
+        valid_data[4].slice(38, 50),  # zpěv ženský
+        valid_data[5].slice(55, 65),  # zpěv mužský
+        valid_data[13].slice(130, 140),  # zpěv mužský
     ]
 
     return train_data, valid_data, small_validation_data
@@ -69,5 +88,5 @@ def name(args, prefix=""):
         args["samplerate"],
     )
     args["logdir"] = "models/" + name
-    
+
     return name

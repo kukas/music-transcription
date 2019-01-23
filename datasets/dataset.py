@@ -7,8 +7,6 @@ import tensorflow as tf
 
 import datasets
 
-# from .common import midi_to_hz_safe, hz_to_midi_safe
-
 PROCESSED_FILES_PATH = "./processed"
 
 def check_processed_dir():
@@ -39,6 +37,8 @@ class Audio:
         self.spectrogram = None
 
     def load_resampled_audio(self, samplerate):
+        assert self.samples == []
+
         check_processed_dir()
         resampled_path = os.path.join(PROCESSED_FILES_PATH, self.uid+"_{}.wav".format(samplerate))
 
@@ -153,10 +153,17 @@ class Audio:
         return spectrogram
 
     def slice(self, start, end):
+        if len(self.samples) == 0:
+            raise Exception("Audio samples are empty")
+
         sliced = Audio(self.path, self.uid)
         sliced.samplerate = self.samplerate
         b0, b1 = int(start*self.samplerate), int(end*self.samplerate)
         sliced.samples = self.samples[b0:b1]
+
+        if len(sliced.samples) == 0:
+            raise Exception("Sliced audio samples are empty")
+
         sliced.samples_count = b1-b0
 
         if self.spectrogram is not None:
@@ -212,7 +219,7 @@ class Annotation:
         return Annotation(sliced_times, sliced_freqs, sliced_notes)
 
 class AADataset:
-    def __init__(self, _annotated_audios, args, preload_hook=None, dataset_transform=None):
+    def __init__(self, _annotated_audios, args, dataset_transform=None):
         self._annotated_audios = _annotated_audios
 
         # self.frame_width = int(np.round(aa.annotation.get_frame_width()*self.samplerate))
@@ -224,17 +231,14 @@ class AADataset:
         self.inner_window_size = self.annotations_per_window*self.frame_width
         self.window_size = self.inner_window_size + 2*self.context_width
 
-        if preload_hook is not None:
-            for aa in self._annotated_audios:
-                preload_hook(aa)
+        for aa in self._annotated_audios:
+            if aa.annotation is None:
+                # add dummy annotation if the annotation is missing
+                times = np.arange(0, aa.audio.samples_count, self.frame_width) / aa.audio.samplerate
+                freqs = np.tile(440, [len(times),1])
+                notes = np.tile(69, [len(times),1])
 
-                if aa.annotation is None:
-                    # add dummy annotation if the annotation is missing
-                    times = np.arange(0, aa.audio.samples_count, self.frame_width) / aa.audio.samplerate
-                    freqs = np.tile(440, [len(times),1])
-                    notes = np.tile(69, [len(times),1])
-
-                    aa.annotation = Annotation(times, freqs, notes)
+                aa.annotation = Annotation(times, freqs, notes)
 
         self.samplerate = _annotated_audios[0].audio.samplerate
 
@@ -250,8 +254,8 @@ class AADataset:
         self.dataset = dataset if dataset_transform is None else dataset_transform(dataset)
         print("dataset duration:", self.total_duration)
         polyphony_counts = [aa.annotation.max_polyphony for aa in self._annotated_audios]
-        print("max. polyphony:", np.max(polyphony_counts))
-        print("min. polyphony:", np.min(polyphony_counts))
+        # print("max. polyphony:", np.max(polyphony_counts))
+        # print("min. polyphony:", np.min(polyphony_counts))
 
     @property
     def total_duration(self):

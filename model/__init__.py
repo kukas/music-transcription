@@ -33,7 +33,7 @@ class Network:
                                                                        inter_op_parallelism_threads=threads,
                                                                        intra_op_parallelism_threads=threads))
 
-    def construct(self, args, create_model, output_types, output_shapes, create_summaries=None, dataset_preload_hook=None, dataset_transform=None):
+    def construct(self, args, create_model, output_types, output_shapes, create_summaries=None, dataset_preload_fn=None, dataset_transform=None):
         self.args = args
         self.logdir = args["logdir"]
         self.note_range = args["note_range"]
@@ -48,7 +48,7 @@ class Network:
         if "spectrogram_shape" in args:
             self.spectrogram_shape = args["spectrogram_shape"]
 
-        self.dataset_preload_hook = dataset_preload_hook
+        self.dataset_preload_fn = dataset_preload_fn
         self.dataset_transform = dataset_transform
 
         with self.session.graph.as_default():
@@ -211,7 +211,7 @@ class Network:
     def predict(self, dataset_iterator, name="predict"):
         predict_data = datasets.load_melody_dataset(name, dataset_iterator)
         with self.session.graph.as_default():
-            predict_dataset = datasets.AADataset(predict_data, self.args, self.dataset_preload_hook, self.dataset_transform)
+            predict_dataset = datasets.AADataset(predict_data, self.args, self.dataset_preload_fn, self.dataset_transform)
             iterator = predict_dataset.dataset.make_one_shot_iterator()
         handle = self.session.run(iterator.string_handle())
 
@@ -282,7 +282,10 @@ class NetworkMelody(Network):
         reference = []
         estimation = []
 
-        estimations, additional = self._predict_handle(handle, [self.loss, self.note_probabilities])
+        additional_fetches = [self.loss]
+        if visual_output:
+            additional_fetches.append(self.note_probabilities)
+        estimations, additional = self._predict_handle(handle, additional_fetches)
 
         for uid, (est_time, est_freq) in estimations.items():
             aa = dataset.get_annotated_audio_by_uid(uid)
@@ -305,7 +308,7 @@ class NetworkMelody(Network):
 
         # write evaluation metrics to tf summary
         
-        loss = np.mean([loss for loss, _ in additional])
+        loss = np.mean([x[0] for x in additional])
         summaries = [
             ("loss", loss),
             ("voicing_recall", metrics['Voicing Recall']),
@@ -333,14 +336,16 @@ class NetworkMelody(Network):
             fig = vis.draw_notes(reference, estimation, title=title)
             img_summary = vis.fig2summary(fig)
             self.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+"notes", image=img_summary)]), global_step)
+            plt.close()
 
-            note_probabilities = np.concatenate(np.concatenate([p for _, p in additional]), axis=0).T
+            note_probabilities = np.concatenate(np.concatenate([x[1] for x in additional]), axis=0).T
             # note_probabilities = np.flip(note_probabilities, 0)
             fig, ax = plt.subplots(figsize=(16, 6))
             ax.set(xlabel='frame', ylabel='midi note')
             ax.imshow(note_probabilities, aspect="auto", origin='lower')
             img_summary = vis.fig2summary(fig)
             self.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+"probs", image=img_summary)]), global_step)
+            plt.close()
 
         #     # suppress inline mode
         #     if not print_detailed:
