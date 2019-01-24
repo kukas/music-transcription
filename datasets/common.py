@@ -8,14 +8,15 @@ from collections import namedtuple
 
 Track = namedtuple("Track", ("audio_path", "annot_path", "uid"))
 
-def mirex_melody_dataset_generator(dataset_audio_path, dataset_annot_path, annot_extension=".csv"):
-    uids = [f[:-4] for f in os.listdir(dataset_audio_path) if f.endswith('.wav')]
+def melody_dataset_generator(dataset_audio_path, dataset_annot_path, audio_suffix=".wav", annot_suffix=".csv"):
+    uids = [f[:len(audio_suffix)] for f in os.listdir(dataset_audio_path) if f.endswith(audio_suffix)]
 
     for uid in uids:
-        audio_path = os.path.join(dataset_audio_path, "{}.wav".format(uid))
-        annot_path = os.path.join(dataset_annot_path, uid+annot_extension)
-
-        yield Track(audio_path, annot_path, uid)
+        audio_path = os.path.join(dataset_audio_path, uid+audio_suffix)
+        annot_path = os.path.join(dataset_annot_path, uid+annot_suffix)
+        
+        if os.path.isfile(annot_path):
+                yield Track(audio_path, annot_path, uid)
 
 
 def load_melody_dataset(name, dataset_iterator):
