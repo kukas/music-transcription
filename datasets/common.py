@@ -9,7 +9,7 @@ from collections import namedtuple
 Track = namedtuple("Track", ("audio_path", "annot_path", "uid"))
 
 def melody_dataset_generator(dataset_audio_path, dataset_annot_path, audio_suffix=".wav", annot_suffix=".csv"):
-    uids = [f[:len(audio_suffix)] for f in os.listdir(dataset_audio_path) if f.endswith(audio_suffix)]
+    uids = [f[:-len(audio_suffix)] for f in os.listdir(dataset_audio_path) if f.endswith(audio_suffix)]
 
     for uid in uids:
         audio_path = os.path.join(dataset_audio_path, uid+audio_suffix)
@@ -36,6 +36,8 @@ def load_melody_dataset(name, dataset_iterator):
 
         print(".", end=("" if (i+1) % 20 else "\n"))
     print()
+
+    assert len(annotated_audios) > 0
 
     return annotated_audios
 
