@@ -95,7 +95,7 @@ class Network:
 
             self.saver = tf.train.Saver()
 
-            self.summary_writer = tf.summary.FileWriter(self.logdir)
+            self.summary_writer = tf.summary.FileWriter(self.logdir, graph=self.session.graph, flush_secs=30)
 
             self.accuracy = None
             self.summaries = None
@@ -146,8 +146,11 @@ class Network:
                 }
 
                 try:
-                    accuracy, loss, _, summary, step = self.session.run([self.accuracy, self.loss, self.training, self.summaries, self.global_step], feed_dict)
-                    self.summary_writer.add_summary(summary, step)
+                    if b % 1000 == 0:
+                        accuracy, loss, _, summary, step = self.session.run([self.accuracy, self.loss, self.training, self.summaries, self.global_step], feed_dict)
+                    else:
+                        self.session.run(self.training, feed_dict)
+
                 except tf.errors.OutOfRangeError:
                     break
 
@@ -157,6 +160,7 @@ class Network:
                     print(".", end="")
 
                 if b % 1000 == 0:
+                    self.summary_writer.add_summary(summary, step)
                     print("b {0}; t {1:.2f}; acc {2:.2f}; loss {3:.2f}".format(b, time.time() - timer, accuracy, loss))
                     timer = time.time()
 
@@ -267,15 +271,12 @@ class NetworkMelody(Network):
             acc_denom = n_est_sum + n_ref_sum - correct_voiced_sum
             self.accuracy = safe_div(correct_voiced_sum, acc_denom)
 
+            tf.summary.scalar("train/loss", self.loss),
+            tf.summary.scalar("train/precision", self.precision),
+            tf.summary.scalar("train/recall", self.recall),
+            tf.summary.scalar("train/accuracy", self.accuracy)
 
-            self.summaries = tf.summary.merge(
-                (
-                    tf.summary.scalar("train/loss", self.loss),
-                    tf.summary.scalar("train/precision", self.precision),
-                    tf.summary.scalar("train/recall", self.recall),
-                    tf.summary.scalar("train/accuracy", self.accuracy)
-                )
-            )
+            self.summaries = tf.summary.merge_all()
 
     def _evaluate_handle(self, dataset, handle, dataset_name=None, visual_output=False, print_detailed=False):
         all_metrics = []

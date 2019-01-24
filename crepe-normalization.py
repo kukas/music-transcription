@@ -26,7 +26,7 @@ def create_model(self, args):
 
     voicing_ref = tf.cast(tf.greater(annotations, 0), tf.float32)
 
-    capacity_multiplier = 4
+    capacity_multiplier = 16
 
     audio_net = common.bn_conv(window_with_channel, 32*capacity_multiplier, 512, 4, "same", activation=tf.nn.relu, training=self.is_training)
     audio_net = tf.layers.max_pooling1d(audio_net, 2, 2)
@@ -53,7 +53,7 @@ def create_model(self, args):
     audio_net = tf.layers.dropout(audio_net, 0.25, training=self.is_training)
 
     audio_net = tf.layers.flatten(audio_net)
-    output_layer = tf.layers.dense(audio_net, self.note_range, activation=None)
+    output_layer = tf.layers.dense(audio_net, self.note_range, activation=None, bias_regularizer=tf.nn.l2_loss, kernel_regularizer=tf.nn.l2_loss)
 
     assert output_layer.shape.as_list() == [None, self.note_range]
 
@@ -70,9 +70,29 @@ def create_model(self, args):
     flat_note_logits = output_layer
     flat_voicing_ref = tf.reshape(voicing_ref, [-1])
     print(flat_annotations.shape, flat_note_logits.shape, flat_voicing_ref.shape)
-    self.loss = tf.losses.sparse_softmax_cross_entropy(flat_annotations, flat_note_logits, weights=flat_voicing_ref)
 
-    self.training = tf.train.AdamOptimizer(0.0002).minimize(self.loss, global_step=self.global_step)
+    self.loss = tf.losses.sparse_softmax_cross_entropy(flat_annotations, flat_note_logits, weights=flat_voicing_ref)
+    reg_variables = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+    self.loss += 0.001 * tf.reduce_sum(reg_variables)
+    # todo snížit tuhle fakin velkou regularizaci
+
+    # self.training = tf.train.AdamOptimizer(0.0002).minimize(self.loss, global_step=self.global_step)
+    with tf.name_scope('train'):
+        optimizer = tf.train.AdamOptimizer(args["learning_rate"])
+        # Get the gradient pairs (Tensor, Variable)
+        grads = optimizer.compute_gradients(self.loss)
+        grads, _ = tf.clip_by_global_norm(grads, 1.0)
+
+        # Update the weights wrt to the gradient
+        self.training = optimizer.apply_gradients(grads, global_step=self.global_step)
+        # Save the grads with tf.summary.histogram
+        for grad, var in grads:
+            if grad is not None:
+                tf.summary.histogram(var.op.name + '/gradients', grad)
+
+    for var in tf.trainable_variables():
+        tf.summary.histogram(var.name, var)
+
 
 
 args = {
@@ -83,10 +103,11 @@ args = {
     "context_width": 466,
     "note_range": 128,
     "samplerate": 16000,
-    "input_normalization": False
+    "input_normalization": True,
+    "learning_rate": 0.0002,
 }
 
-name = common.name(args, "crepe_8mult"+("_normalized" if args["input_normalization"] else ""))
+name = common.name(args, "crepe_16mult"+("_normalized" if args["input_normalization"] else ""))
 
 # To restore model from a checkpoint
 # args["logdir"] = "..."
