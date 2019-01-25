@@ -12,39 +12,66 @@ import tensorflow as tf
 
 from IPython.display import Audio
 
+
 def audioplayer(path):
     y, fs = librosa.load(path, sr=None)
     return Audio(y, rate=fs)
 
+
 def samplesplayer(samples, fs):
     return Audio(samples, rate=fs)
+
 
 def flatten(notesets):
     indices = [i for i, notes in enumerate(notesets) for n in notes]
     flatnotes = [n for notes in notesets for n in notes]
     return indices, flatnotes
 
-def draw_notes(ref, est, style = ".", title = None):
-    fig, ax = plt.subplots(figsize=(16, 6))
-    ax.set_ylim(0,128)
+
+def draw_notes(ref, est, style=".", title=None):
+    fig, ax = plt.subplots(figsize=(15, 6))
+    ax.set_ylim(0, 128)
     if title:
         ax.set_title(title)
     ax.set(xlabel='frame', ylabel='midi note')
 
     # ref = np.array(ref, dtype=np.float16)
     # est = np.array(est, dtype=np.float16)
-    
+
     indices_correct, correct = flatten([[n_est for n_est in fest if any([abs(n_est - n_ref) < 0.5 for n_ref in fref])] for fref, fest in zip(ref, est)])
-    indices_incorrect, incorrect = flatten([[n_est for n_est in fest if all([abs(n_est - n_ref) >= 0.5 for n_ref in fref])] for fref, fest in zip(ref, est)])
+    indices_unvoiced_incorrect, unvoiced_incorrect = flatten([[n_est for n_est in fest if all([abs(n_est - n_ref) >= 0.5 for n_ref in fref]) and len(fref) == 0] for fref, fest in zip(ref, est)])
+    indices_incorrect, incorrect = flatten([[n_est for n_est in fest if all([abs(n_est - n_ref) >= 0.5 for n_ref in fref]) and len(fref) > 0] for fref, fest in zip(ref, est)])
     indices_ref_rest, ref_rest = flatten([[n_ref for n_ref in fref if all([abs(n_est - n_ref) >= 0.5 for n_est in fest])] for fref, fest in zip(ref, est)])
 
-    ax.plot(indices_ref_rest, ref_rest, style, color="#222222", label="REF")
-    ax.plot(indices_incorrect, incorrect, style, color="#ff300e", label="EST incorrect")
-    ax.plot(indices_correct, correct, style, color="#0ab02d", label="EST correct")
+    ms = 2
+    ax.plot(indices_ref_rest, ref_rest, style, color="#222222", label="REF", markersize=ms)
+    ax.plot(indices_unvoiced_incorrect, unvoiced_incorrect, style, color="#ffb030", label="EST voicing error", markersize=ms)
+    ax.plot(indices_incorrect, incorrect, style, color="#ff300e", label="EST incorrect", markersize=ms)
+    ax.plot(indices_correct, correct, style, color="#0ab02d", label="EST correct", markersize=ms)
 
-    legend = ax.legend()
+    ax.legend()
+    
+    plt.tight_layout()
 
     return fig
+
+
+def draw_probs(probs, ref, title=None):
+    fig, ax = plt.subplots(figsize=(15, 6))
+    ax.set_ylim(0, 128)
+    if title:
+        ax.set_title(title)
+    ax.set(xlabel='frame', ylabel='midi note')
+
+    ax.imshow(probs, aspect="auto", origin='lower')
+
+    indices_ref, ref = flatten(ref)
+    ax.plot(indices_ref, ref, ",", color="#ffffff", alpha=0.3)
+
+    plt.tight_layout()
+
+    return fig
+
 
 def fig2data(fig):
     """
@@ -54,7 +81,7 @@ def fig2data(fig):
     """
     # draw the renderer
     fig.canvas.draw()
- 
+
     data = np.fromstring(fig.canvas.tostring_argb(), dtype=np.uint8, sep='')
     data = data.reshape(fig.canvas.get_width_height()[::-1] + (4,))
     data = np.roll(data, 3, axis=2)
@@ -71,15 +98,19 @@ def fig2summary(fig):
 
     return img_sum
 
-def draw_spectrum(audio, samplerate): 
+
+def draw_spectrum(audio, samplerate):
     fig, ax = plt.subplots()
-    
+
     f, t, X = scipy.signal.stft(audio, samplerate, nperseg=2048, noverlap=2048-256)
     S = librosa.amplitude_to_db(np.abs(X))
 
     ax.set_yscale('log')
     ax.pcolormesh(t, f, S, cmap="inferno")
-    ax.set_ylim(27.5,4400)
+    ax.set_ylim(27.5, 4400)
+
+    return fig
+
 
 def draw_cqt(audio, samplerate):
     s = 3
