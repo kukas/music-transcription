@@ -5,19 +5,22 @@ import datetime
 
 
 def name(args, prefix=""):
-    name = "{}-{}-bs{}-apw{}-fw{}-ctx{}-nr{}-sr{}".format(
-        prefix,
-        datetime.datetime.now().strftime("%m-%d_%H%M%S"),
-        args["batch_size"],
-        args["annotations_per_window"],
-        args["frame_width"],
-        args["context_width"],
-        args["note_range"],
-        args["samplerate"],
-    )
-    args["logdir"] = "models/" + name
+    if "logdir" not in args:
+        name = "{}-{}-bs{}-apw{}-fw{}-ctx{}-nr{}-sr{}".format(
+            prefix,
+            datetime.datetime.now().strftime("%m-%d_%H%M%S"),
+            args["batch_size"],
+            args["annotations_per_window"],
+            args["frame_width"],
+            args["context_width"],
+            args["note_range"],
+            args["samplerate"],
+        )
+        args["logdir"] = "models/" + name
 
-    return name
+        print()
+        print(name)
+        print()
 
 
 def bn_conv(inputs, filters, size, strides, padding, activation=None, dilation_rate=1, training=False):
