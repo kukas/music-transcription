@@ -3,15 +3,17 @@ import numpy as np
 import os
 from resampy import resample
 import librosa
+import mir_eval
 import tensorflow as tf
 
 import datasets
 
 PROCESSED_FILES_PATH = "./processed"
+CACHED_FILES_PATH = "./cached"
 
-def check_processed_dir():
-    if not os.path.isdir(PROCESSED_FILES_PATH):
-        os.makedirs(PROCESSED_FILES_PATH)
+def check_dir(path):
+    if not os.path.isdir(path):
+        os.makedirs(path)
 
 ''' It is useful to keep audio and its annotation together because we can apply
 transformations such as concatenation of training examples. '''
@@ -39,7 +41,7 @@ class Audio:
     def load_resampled_audio(self, samplerate):
         assert self.samples == []
 
-        check_processed_dir()
+        check_dir(PROCESSED_FILES_PATH)
         resampled_path = os.path.join(PROCESSED_FILES_PATH, self.uid+"_{}.wav".format(samplerate))
 
         if os.path.isfile(resampled_path):
@@ -66,7 +68,7 @@ class Audio:
     def load_spectrogram(self, spec_function, spec_function_thumbprint, hop_size):
         self.spectrogram_hop_size = hop_size
 
-        check_processed_dir()
+        check_dir(PROCESSED_FILES_PATH)
         spec_path = os.path.join(PROCESSED_FILES_PATH, self.uid+"_{}.npy".format(spec_function_thumbprint))
 
         # spec_path = self.path.replace(".wav", spec_function_thumbprint+".npy")
@@ -198,6 +200,24 @@ class Annotation:
 
         if notes is None:
             self.notes = datasets.common.hz_to_midi_safe(self.freqs)
+    
+    @staticmethod
+    def from_time_series(annot_path, dataset_prefix):
+        check_dir(CACHED_FILES_PATH)
+        # Check if there is a cached numpy binary
+        filename = os.path.splitext(os.path.basename(annot_path))[0]
+        cached_path = os.path.join(CACHED_FILES_PATH, dataset_prefix+"_"+filename+".npz")
+        if os.path.isfile(cached_path):
+            times, freqs, notes = np.load(cached_path).values()
+            return Annotation(times, freqs, notes)
+        else:
+            times, freqs = mir_eval.io.load_time_series(annot_path, delimiter=r'\s+|,')
+            freqs = np.expand_dims(freqs, 1)
+            annot = Annotation(times, freqs)
+
+            np.savez(cached_path, annot.times, annot.freqs, annot.notes)
+
+            return annot
         
     @property
     def max_polyphony(self):

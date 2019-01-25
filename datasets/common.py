@@ -28,14 +28,9 @@ def load_melody_dataset(name, dataset_iterator):
         # prepare annotation
         annotation = None
         if annot_path is not None:
-                times, freqs = mir_eval.io.load_time_series(annot_path, delimiter=r'\s+|,')
-                freqs = np.expand_dims(freqs, 1)
-                annotation = Annotation(times, freqs)
+                annotation = Annotation.from_time_series(annot_path, name)
 
         annotated_audios.append(AnnotatedAudio(annotation, audio))
-
-        print(".", end=("" if (i+1) % 20 else "\n"))
-    print()
 
     assert len(annotated_audios) > 0
 
