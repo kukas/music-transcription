@@ -115,7 +115,7 @@ class Network:
             # Initialize variables
             self.session.run(tf.global_variables_initializer())
 
-            if os.path.exists(os.path.join(self.logdir, "model.ckpt")):
+            if os.path.exists(os.path.join(self.logdir, "model.ckpt.index")):
                 self.restore()
 
     def _summaries(self, args):
@@ -215,7 +215,7 @@ class Network:
     def predict(self, dataset_iterator, name="predict"):
         predict_data = datasets.load_melody_dataset(name, dataset_iterator)
         with self.session.graph.as_default():
-            predict_dataset = datasets.AADataset(predict_data, self.args, self.dataset_preload_fn, self.dataset_transform)
+            predict_dataset = datasets.AADataset(predict_data, self.args, self.dataset_transform)
             iterator = predict_dataset.dataset.make_one_shot_iterator()
         handle = self.session.run(iterator.string_handle())
 
@@ -340,10 +340,7 @@ class NetworkMelody(Network):
             plt.close()
 
             note_probabilities = np.concatenate(np.concatenate([x[1] for x in additional]), axis=0).T
-            # note_probabilities = np.flip(note_probabilities, 0)
-            fig, ax = plt.subplots(figsize=(16, 6))
-            ax.set(xlabel='frame', ylabel='midi note')
-            ax.imshow(note_probabilities, aspect="auto", origin='lower')
+            fig = vis.draw_probs(note_probabilities, reference)
             img_summary = vis.fig2summary(fig)
             self.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+"probs", image=img_summary)]), global_step)
             plt.close()
