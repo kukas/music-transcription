@@ -42,7 +42,10 @@ def prepare(preload_fn):
 
     # TODO: choose better small validation
     small_validation_data = [
-        valid_data[3].slice(0, 40),
+        valid_data[0].slice(15, 25), # ženský zpěv
+        valid_data[2].slice(0, 10), # mužský zpěv
+        valid_data[6].slice(0,10), # kytara (souzvuk)
+        valid_data[7].slice(12, 20),  # basová kytara+piano bez melodie, pak zpěvačka
     ]
 
     return train_data, valid_data, small_validation_data
