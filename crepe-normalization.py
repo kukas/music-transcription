@@ -74,24 +74,25 @@ def create_model(self, args):
     self.loss = tf.losses.sparse_softmax_cross_entropy(flat_annotations, flat_note_logits, weights=flat_voicing_ref)
     reg_variables = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
     self.loss += 0.001 * tf.reduce_sum(reg_variables)
-    # todo snížit tuhle fakin velkou regularizaci
 
     # self.training = tf.train.AdamOptimizer(0.0002).minimize(self.loss, global_step=self.global_step)
-    with tf.name_scope('train'):
+    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+    with tf.control_dependencies(update_ops):                                                            
         optimizer = tf.train.AdamOptimizer(args["learning_rate"])
         # Get the gradient pairs (Tensor, Variable)
-        grads = optimizer.compute_gradients(self.loss)
-        grads, _ = tf.clip_by_global_norm(grads, 1.0)
+        grads_and_vars = optimizer.compute_gradients(self.loss)
+        grads, tvars = zip(*grads_and_vars)
+        grads, _ = tf.clip_by_global_norm(grads, 2.0)
 
+        grads_and_vars = list(zip(grads, tvars))
         # Update the weights wrt to the gradient
-        self.training = optimizer.apply_gradients(grads, global_step=self.global_step)
-        # Save the grads with tf.summary.histogram
-        for grad, var in grads:
+        self.training = optimizer.apply_gradients(grads_and_vars, global_step=self.global_step)
+
+        # Save the grads and vars with tf.summary.histogram
+        for grad, var in grads_and_vars:
             if grad is not None:
                 tf.summary.histogram(var.op.name + '/gradients', grad)
-
-    for var in tf.trainable_variables():
-        tf.summary.histogram(var.name, var)
+            tf.summary.histogram(var.name, var)
 
 
 
@@ -128,7 +129,7 @@ with network.session.graph.as_default():
     def dataset_transform_train(dataset):
         return dataset.shuffle(20000).batch(args["batch_size"]).prefetch(1)
 
-    mdb_stem_synth_train, mdb_stem_synth_validation, mdb_stem_synth_small_validation = common.prepare_mdb_stem_synth(preload_fn)
+    mdb_stem_synth_train, mdb_stem_synth_validation, mdb_stem_synth_small_validation = datasets.mdb_stem_synth.prepare(preload_fn)
 
     train_dataset = datasets.AADataset(mdb_stem_synth_train, args, dataset_transform_train)
     mdb_stem_synth_validation_dataset = datasets.AADataset(mdb_stem_synth_validation, args, dataset_transform)
