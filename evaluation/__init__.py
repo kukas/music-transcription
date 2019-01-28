@@ -7,14 +7,11 @@ from os.path import join
 import matplotlib.pyplot as plt
 
 import csv
-
-# Evaluujeme pouze podmnožinu MedleyDB a MDB-melody-synth
-modulepath = os.path.dirname(__file__)
-import json
-with open(join(modulepath, "../data/MedleyDB/dataset_ismir_split.json")) as f:
-    mdb_test_subset = json.load(f)["test"]
-
 import datasets
+
+modulepath = os.path.dirname(os.path.abspath(__file__))
+mdb_split = datasets.medleydb.get_split()
+wjazzd_split = datasets.wjazzd.get_split()
 
 dataset_list = {
     "ORCHSET": (
@@ -29,13 +26,29 @@ dataset_list = {
         datasets.mirex05.prefix,
         list(datasets.mirex05.generator(join(modulepath, "../data/mirex05")))
         ),
-    "MDB-f0-s.": (
+    "MDB-mel-s.": (
         datasets.mdb_melody_synth.prefix,
-        list(filter(lambda x: x.uid in mdb_test_subset, datasets.mdb_melody_synth.generator(join(modulepath, "../data/MDB-melody-synth"))))
+        list(filter(lambda x: x.uid in mdb_split["test"], datasets.mdb_melody_synth.generator(join(modulepath, "../data/MDB-melody-synth"))))
         ),
     "MedleyDB": (
         datasets.medleydb.prefix,
-        list(filter(lambda x: x.uid in mdb_test_subset, datasets.medleydb.generator(join(modulepath, "../data/MedleyDB/MedleyDB"))))
+        list(filter(lambda x: x.uid in mdb_split["test"], datasets.medleydb.generator(join(modulepath, "../data/MedleyDB/MedleyDB"))))
+        ),
+    "WJazzD": (
+        datasets.wjazzd.prefix,
+        list(filter(lambda x: x.uid in wjazzd_split["test"], datasets.wjazzd.generator(join(modulepath, "../data/WJazzD"))))
+        ),
+    "MDB-mel-s. valid.": (
+        datasets.mdb_melody_synth.prefix,
+        list(filter(lambda x: x.uid in mdb_split["validation"], datasets.mdb_melody_synth.generator(join(modulepath, "../data/MDB-melody-synth"))))
+    ),
+    "MedleyDB valid.": (
+        datasets.medleydb.prefix,
+        list(filter(lambda x: x.uid in mdb_split["validation"], datasets.medleydb.generator(join(modulepath, "../data/MedleyDB/MedleyDB"))))
+    ),
+    "WJazzD valid.": (
+        datasets.wjazzd.prefix,
+        list(filter(lambda x: x.uid in wjazzd_split["validation"], datasets.wjazzd.generator(join(modulepath, "../data/WJazzD"))))
         ),
 }
 
@@ -67,14 +80,17 @@ def evaluate_dataset_melody(refs, ests, per_track_info=False):
 
     return all_scores
 
-def summary(method, path):
+def summary(method, path, est_suffix):
     results = {}
-
+    # Iterates through the datasets
     for name, (prefix, dataset_iterator) in dataset_list.items():
+        # List of the paths to reference annotations
         annot_paths = map(lambda x: x.annot_path, dataset_iterator)
+        audio_names = map(lambda x: os.path.splitext(os.path.basename(x.audio_path))[0], dataset_iterator)
 
         ests_dir = "{}-{}-melody-outputs".format(prefix, method)
-        est_paths = glob(join(path, ests_dir, "*"))
+        # List of the paths to estimation annotations
+        est_paths = [join(path, ests_dir, name+est_suffix) for name in audio_names]
 
         result = evaluate_dataset_melody(annot_paths, est_paths)
         results[name] = result
@@ -85,7 +101,7 @@ def evaluate_model(network, model_name):
     path = model_name+"-f0-outputs"
     if not os.path.exists(path):
         os.mkdir(path)
-    
+    # Iterates through the datasets
     for dataset_name, (prefix, dataset_iterator) in dataset_list.items():
         audios = map(lambda x: datasets.Track(x.audio_path, None, x.uid), dataset_iterator)
 
@@ -101,3 +117,4 @@ def evaluate_model(network, model_name):
                 writer.writerows(list(zip(est_time, est_freq)))
 
     return summary(model_name, path)
+
