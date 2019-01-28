@@ -4,19 +4,19 @@ import numpy as np
 import json
 
 from .common import melody_dataset_generator, load_melody_dataset
+modulepath = os.path.dirname(os.path.abspath(__file__))
 
 prefix = "mdb"
 
-
 def get_split():
     # For MDB and MDB synth we use the train/validation/test split according to deepsalience paper
-    with open("data/MedleyDB/dataset_ismir_split.json") as f:
-        medleydb_split = json.load(f)
-    return medleydb_split
+    with open(os.path.join(modulepath, "..", "data", "MedleyDB", "dataset_ismir_split.json")) as f:
+        split = json.load(f)
+    return split
 
 
 def generator(dataset_root):
-    dataset_audio_path = os.path.join(dataset_root, "Audio")
+    dataset_audio_path = os.path.join(dataset_root, "Audio", "*")
     dataset_annot_path = os.path.join(dataset_root, "Annotations", "Melody_Annotations", "MELODY2")
 
     return melody_dataset_generator(dataset_audio_path, dataset_annot_path, audio_suffix="_MIX.wav", annot_suffix="_MELODY2.csv")
@@ -30,7 +30,7 @@ def prepare(preload_fn):
     medleydb_split = get_split()
 
     def mdb_split(name):
-        gen = generator("data/MedleyDB/MedleyDB/")
+        gen = generator(os.path.join(modulepath, "..", "data", "MedleyDB", "MedleyDB"))
         return filter(lambda x: x.uid in medleydb_split[name], gen)
 
     train_data = load_melody_dataset(prefix, mdb_split("train"))

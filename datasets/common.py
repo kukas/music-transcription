@@ -3,20 +3,27 @@ from .dataset import AnnotatedAudio, Audio, Annotation, AADataset
 import numpy as np
 import mir_eval
 import os
+from glob import glob
+import warnings
 
 from collections import namedtuple
 
 Track = namedtuple("Track", ("audio_path", "annot_path", "uid"))
 
-def melody_dataset_generator(dataset_audio_path, dataset_annot_path, audio_suffix=".wav", annot_suffix=".csv"):
-    uids = [f[:-len(audio_suffix)] for f in os.listdir(dataset_audio_path) if f.endswith(audio_suffix)]
 
+def melody_dataset_generator(dataset_audio_path, dataset_annot_path, audio_suffix=".wav", annot_suffix=".csv"):
+    uids = [os.path.basename(f)[:-len(audio_suffix)] for f in glob(os.path.join(dataset_audio_path, "*"+audio_suffix))]
     for uid in uids:
-        audio_path = os.path.join(dataset_audio_path, uid+audio_suffix)
-        annot_path = os.path.join(dataset_annot_path, uid+annot_suffix)
-        
-        if os.path.isfile(annot_path):
-                yield Track(audio_path, annot_path, uid)
+        audio_path = glob(os.path.join(dataset_audio_path, uid+audio_suffix))
+        annot_path = glob(os.path.join(dataset_annot_path, uid+annot_suffix))
+
+        if len(annot_path) == 1:
+            yield Track(audio_path[0], annot_path[0], uid)
+        else:
+            if len(annot_path) == 0:
+                warnings.warn("Missing annotation for {}".format(uid))
+            else:
+                warnings.warn("More matching annotations for {}".format(uid))
 
 
 def load_melody_dataset(name, dataset_iterator):
@@ -28,7 +35,7 @@ def load_melody_dataset(name, dataset_iterator):
         # prepare annotation
         annotation = None
         if annot_path is not None:
-                annotation = Annotation.from_time_series(annot_path, name)
+            annotation = Annotation.from_time_series(annot_path, name)
 
         annotated_audios.append(AnnotatedAudio(annotation, audio))
 
@@ -40,8 +47,10 @@ def load_melody_dataset(name, dataset_iterator):
 def melody_to_multif0(values):
     return [[x] if x > 0 else [] for x in values]
 
+
 def multif0_to_melody(values):
     return np.array([x[0] if len(x) > 0 else 0 for x in values])
+
 
 def _hz_to_midi_safe(x):
     if x > 0:
@@ -49,7 +58,9 @@ def _hz_to_midi_safe(x):
     else:
         return 0
 
+
 hz_to_midi_safe = np.vectorize(_hz_to_midi_safe, otypes=[float])
+
 
 def _midi_to_hz_safe(x):
     if x > 0:
