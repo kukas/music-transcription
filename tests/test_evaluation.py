@@ -1,6 +1,26 @@
 import nose.tools
 import evaluation
 import numpy as np
+import mir_eval
+
+def test_raw_harmonic_accuracy():
+    ref_freq = np.array([0, 440, 440, 440, 440])
+    ref_voicing = ref_freq > 0
+
+    est_freq = np.array([0, 0, 0, 0, 0])
+    est_voicing = est_freq > 0
+
+    score = evaluation.melody.raw_harmonic_accuracy(ref_voicing, ref_freq, est_voicing, est_freq)
+    assert np.allclose(0.0, score)
+
+    est_freq = np.array([0, 430, 660, 890, 1760])
+    est_voicing = est_freq > 0
+
+    score = evaluation.melody.raw_harmonic_accuracy(ref_voicing, ref_freq, est_voicing, est_freq)
+    assert np.allclose(0.75, score)
+
+    score = evaluation.melody.raw_harmonic_accuracy(ref_voicing, ref_freq, est_voicing, est_freq, harmonics=3)
+    assert np.allclose(0.5, score)
 
 def test_overall_chroma_accuracy():
     ref_cent = np.array([0, 0, 1195, 1800, 2405])
