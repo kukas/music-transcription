@@ -188,18 +188,22 @@ class Audio:
 
 ''' Handles the common time-frequency annotation format. '''
 class Annotation:
-    def __init__(self, times, freqs=None, notes=None):
+    def __init__(self, times, freqs=None, notes=None, voicing=None):
         assert not (freqs is None and notes is None)
 
         self.times = np.array(times)
         self.freqs = freqs
         self.notes = notes
+        self.voicing = voicing
 
         if freqs is None:
             self.freqs = datasets.common.midi_to_hz_safe(self.notes)
 
         if notes is None:
             self.notes = datasets.common.hz_to_midi_safe(self.freqs)
+
+        if voicing is None:
+            self.voicing = self.freqs[:,0] > 0
     
     @staticmethod
     def from_time_series(annot_path, dataset_prefix):
@@ -208,14 +212,22 @@ class Annotation:
         filename = os.path.splitext(os.path.basename(annot_path))[0]
         cached_path = os.path.join(CACHED_FILES_PATH, dataset_prefix+"_"+filename+".npz")
         if os.path.isfile(cached_path):
-            times, freqs, notes = np.load(cached_path).values()
-            return Annotation(times, freqs, notes)
+            times, freqs, notes, voicing = np.load(cached_path).values()
+            return Annotation(times, freqs, notes, voicing)
         else:
-            times, freqs = mir_eval.io.load_time_series(annot_path, delimiter=r'\s+|,')
-            freqs = np.expand_dims(freqs, 1)
-            annot = Annotation(times, freqs)
+            times, freqs = mir_eval.io.load_ragged_time_series(annot_path, delimiter=r'\s+|,')
+            max_polyphony = np.max([len(frame) for frame in freqs])
+            freqs_aligned = np.zeros((len(freqs), max_polyphony))
+            voicing = np.zeros((len(freqs),), dtype=np.int32)
+            for i, frame in enumerate(freqs):
+                for j, freq in enumerate(frame):
+                    if freq == 0:
+                        break
+                    freqs_aligned[i, j] = freq
+                    voicing[i] += 1
+            annot = Annotation(times, freqs_aligned, voicing=voicing)
 
-            np.savez(cached_path, annot.times, annot.freqs, annot.notes)
+            np.savez(cached_path, annot.times, annot.freqs, annot.notes, annot.voicing)
 
             return annot
         
@@ -236,7 +248,8 @@ class Annotation:
         sliced_times = sliced_times - sliced_times[0]
         sliced_freqs = self.freqs[b0:b1]
         sliced_notes = self.notes[b0:b1]
-        return Annotation(sliced_times, sliced_freqs, sliced_notes)
+        sliced_voicing = self.voicing[b0:b1]
+        return Annotation(sliced_times, sliced_freqs, sliced_notes, sliced_voicing)
 
 class AADataset:
     def __init__(self, _annotated_audios, args, dataset_transform=None):

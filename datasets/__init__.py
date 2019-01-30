@@ -6,6 +6,7 @@ from . import orchset
 from . import medleydb
 from . import mdb_melody_synth
 from . import mdb_stem_synth
+from . import mdb_mf0_synth
 from . import wjazzd
 
 from .common import load_melody_dataset, Track
