@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 import csv
 import datasets
 
+from . import melody
+
 modulepath = os.path.dirname(os.path.abspath(__file__))
 mdb_split = datasets.medleydb.get_split()
 wjazzd_split = datasets.wjazzd.get_split()
