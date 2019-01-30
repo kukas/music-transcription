@@ -23,10 +23,10 @@ def create_model(self, args):
 
 
     melody = tf.layers.dense(window, 1024, activation=tf.nn.tanh)
-    output_layer = tf.layers.dense(melody, self.note_range, activation=None)
+    output_layer = tf.layers.dense(melody, self.annotations_per_window * self.note_range, activation=None)
 
     voicing = tf.layers.dense(window, 1024, activation=tf.nn.tanh)
-    voicing = tf.layers.dense(voicing, 1, activation=None)
+    voicing = tf.layers.dense(voicing, self.annotations_per_window, activation=None)
     voicing_est = tf.cast(tf.greater(voicing, 0), tf.int32)
 
     self.note_logits = tf.reshape(output_layer, [-1, self.annotations_per_window, self.note_range])
@@ -42,12 +42,12 @@ def create_model(self, args):
 args = {
     "threads": 6,
     "batch_size": 32,
-    "annotations_per_window": 1,
+    "annotations_per_window": 10,
     "frame_width": round(256/(44100/16000)), # frame_width of MedleyDB resampled to 16000 Hz
     "context_width": 466,
     "note_range": 128,
     "samplerate": 16000,
-    "input_normalization": False
+    "input_normalization": True
 }
 
 # To restore model from a checkpoint
@@ -82,7 +82,7 @@ with network.session.graph.as_default():
 
     network.construct(args, create_model, train_dataset.dataset.output_types, train_dataset.dataset.output_shapes, dataset_preload_fn=preload_fn, dataset_transform=dataset_transform)
 
-epochs = 1
+epochs = 10
 validation_datasets = [
     VD(datasets.mdb_stem_synth.prefix+"_small", mdb_stem_synth_small_validation_dataset, 1000, True),
     VD(datasets.mdb_melody_synth.prefix+"_small", small_validation_dataset, 1000, True),

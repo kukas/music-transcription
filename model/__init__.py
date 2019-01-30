@@ -205,6 +205,13 @@ class Network:
         for uid in notes.keys():
             est_time = np.concatenate(times[uid])
             est_notes = np.concatenate(notes[uid])
+
+            # if there is padding at the end of the estimation, cut it
+            zeros = np.where(est_time==0)[0]
+            if len(zeros) > 1:
+                est_time = est_time[:zeros[1]]
+                est_notes = est_notes[:zeros[1]]
+
             est_freq = datasets.common.midi_to_hz_safe(est_notes)
             estimations[uid] = (est_time, est_freq)
 

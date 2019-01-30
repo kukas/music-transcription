@@ -289,7 +289,7 @@ class AADataset:
             if self.window_size > aa.audio.samples_count:
                 raise RuntimeError("Window size is bigger than the audio.")
 
-            for annotation_index in range(0, len(aa.annotation.times)-self.annotations_per_window+1, self.annotations_per_window):
+            for annotation_index in range(0, len(aa.annotation.times), self.annotations_per_window):
                 yield self._create_example(aa, annotation_index)
 
     def all_samples(self):
@@ -297,9 +297,15 @@ class AADataset:
         return np.concatenate(samples)
 
     def _create_example(self, aa, annotation_start):
-        annotation_end = annotation_start + self.annotations_per_window
+        annotation_end = min(len(aa.annotation.times), annotation_start + self.annotations_per_window)
+        
         annotations = aa.annotation.notes[annotation_start:annotation_end]
         times = aa.annotation.times[annotation_start:annotation_end]
+
+        len_diff = self.annotations_per_window - (annotation_end - annotation_start)
+        if len_diff > 0:
+            times = np.pad(times, (0, len_diff), "constant")
+            annotations = np.pad(annotations, ((0, len_diff),(0,0)), "constant")
 
         window_start_sample = np.floor(times[0]*self.samplerate)
         audio, spectrogram = aa.audio.get_window_at_sample(window_start_sample, self.inner_window_size, self.context_width)
