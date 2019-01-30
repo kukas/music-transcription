@@ -84,7 +84,7 @@ def evaluate_dataset_melody(refs, ests, per_track_info=False):
 
     return all_scores
 
-def summary(method, path, est_suffix):
+def summary(method, path, est_suffix=".csv"):
     results = {}
     # Iterates through the datasets
     for name, (prefix, dataset_iterator) in get_dataset_list().items():
