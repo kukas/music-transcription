@@ -289,7 +289,7 @@ class AADataset:
             if self.window_size > aa.audio.samples_count:
                 raise RuntimeError("Window size is bigger than the audio.")
 
-            for annotation_index in range(0, len(aa.annotation.times)-self.annotations_per_window, self.annotations_per_window):
+            for annotation_index in range(0, len(aa.annotation.times)-self.annotations_per_window+1, self.annotations_per_window):
                 yield self._create_example(aa, annotation_index)
 
     def all_samples(self):
