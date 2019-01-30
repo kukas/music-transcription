@@ -18,6 +18,7 @@ import inspect
 import os
 
 import datasets
+import evaluation
 import pandas
 
 VD = namedtuple("ValidationDataset", ["name", "dataset", "evaluate_every", "visual_output"])
@@ -296,6 +297,16 @@ class NetworkMelody(Network):
 
             metrics = mir_eval.melody.evaluate(ref_time, ref_freq, est_time, est_freq)
             metrics["Track"] = uid
+
+            ref_v, ref_c, est_v, est_c = mir_eval.melody.to_cent_voicing(ref_time, ref_freq, est_time, est_freq)
+            metrics["Raw 1-Harmonic Accuracy"] = evaluation.melody.raw_harmonic_accuracy(ref_v, ref_freq, est_v, est_freq, harmonics=1)
+            metrics["Raw 2-Harmonic Accuracy"] = evaluation.melody.raw_harmonic_accuracy(ref_v, ref_freq, est_v, est_freq, harmonics=2)
+            metrics["Raw 3-Harmonic Accuracy"] = evaluation.melody.raw_harmonic_accuracy(ref_v, ref_freq, est_v, est_freq, harmonics=3)
+            metrics["Raw 4-Harmonic Accuracy"] = evaluation.melody.raw_harmonic_accuracy(ref_v, ref_freq, est_v, est_freq, harmonics=4)
+            metrics["Overall Chroma Accuracy"] = evaluation.melody.overall_chroma_accuracy(ref_v, ref_c, est_v, est_c)
+            metrics["Voicing Accuracy"] = evaluation.melody.voicing_accuracy(ref_v, est_v)
+            metrics["Voiced Frames Proportion"] = est_v.sum() / len(est_v) if len(est_v) > 0 else 0
+
             all_metrics.append(metrics)
 
             if visual_output:
@@ -312,10 +323,17 @@ class NetworkMelody(Network):
         loss = np.mean([x[0] for x in additional])
         summaries = [
             ("loss", loss),
+            ("raw_1_harmonic_accuracy", metrics['Raw 1-Harmonic Accuracy']),
+            ("raw_2_harmonic_accuracy", metrics['Raw 2-Harmonic Accuracy']),
+            ("raw_3_harmonic_accuracy", metrics['Raw 3-Harmonic Accuracy']),
+            ("raw_4_harmonic_accuracy", metrics['Raw 4-Harmonic Accuracy']),
+            ("voicing_accuracy", metrics['Voicing Accuracy']),
+            ("voiced_frames_proportion", metrics['Voiced Frames Proportion']),
             ("voicing_recall", metrics['Voicing Recall']),
             ("voicing_false_alarm", metrics['Voicing False Alarm']),
             ("raw_pitch_accuracy", metrics['Raw Pitch Accuracy']),
             ("raw_chroma_accuracy", metrics['Raw Chroma Accuracy']),
+            ("overall_chroma_accuracy", metrics['Overall Chroma Accuracy']),
             ("overall_accuracy", metrics['Overall Accuracy']),
         ]
         global_step = tf.train.global_step(self.session, self.global_step)
