@@ -11,10 +11,21 @@ def create_model(self, args):
     window = self.window[:, :-1]
     voicing_ref = tf.cast(tf.layers.flatten(tf.greater(annotations, 0)), tf.float32)
 
-    melody = tf.layers.dense(self.window, 1024, activation=tf.nn.tanh)
+    if args["input_normalization"]:
+        mean, var = tf.nn.moments(window, axes=[1])
+        mean = tf.expand_dims(mean, axis=1)
+
+        epsilon = 1e-3
+        std_inv = tf.math.rsqrt(var + epsilon)
+        std_inv = tf.expand_dims(std_inv, axis=1)
+
+        window = (window - mean) * std_inv
+
+
+    melody = tf.layers.dense(window, 1024, activation=tf.nn.tanh)
     output_layer = tf.layers.dense(melody, self.note_range, activation=None)
 
-    voicing = tf.layers.dense(self.window, 1024, activation=tf.nn.tanh)
+    voicing = tf.layers.dense(window, 1024, activation=tf.nn.tanh)
     voicing = tf.layers.dense(voicing, 1, activation=None)
     voicing_est = tf.cast(tf.greater(voicing, 0), tf.int32)
 
@@ -35,53 +46,53 @@ args = {
     "frame_width": round(256/(44100/16000)), # frame_width of MedleyDB resampled to 16000 Hz
     "context_width": 466,
     "note_range": 128,
-    "samplerate": 16000
+    "samplerate": 16000,
+    "input_normalization": False
 }
-
-name = common.name(args, "baseline-tanh")
-print(name)
 
 # To restore model from a checkpoint
 # args["logdir"] = "..."
+
+name_normalized = ("_normalized" if args["input_normalization"] else "")
+common.name(args, "baseline_tanh_{}".format(name_normalized))
+
 
 # Construct the network
 network = NetworkMelody(threads=args["threads"])
 
 with network.session.graph.as_default():
-    preload_hook = lambda aa: aa.audio.load_resampled_audio(args["samplerate"])
-    dataset_transform = lambda dataset: dataset.batch(128).prefetch(1)
-    dataset_transform_train = lambda dataset: dataset.shuffle(20000).batch(args["batch_size"]).prefetch(1)
 
-    # # Prepare the data (and load annotations)
-    # mdb_stem_synth_train, mdb_stem_synth_validation, mdb_stem_synth_small_validation = common.prepare_mdb_stem_synth()
-    # # Prepare the datasets
-    # train_dataset = datasets.AADataset(mdb_stem_synth_train, args, preload_hook, dataset_transform_train)
-    # mdb_stem_synth_validation_dataset = datasets.AADataset(mdb_stem_synth_validation, args, preload_hook, dataset_transform)
-    # mdb_stem_synth_small_validation_dataset = datasets.AADataset(mdb_stem_synth_small_validation, args, preload_hook, dataset_transform)
-    
-    # Prepare the data (and load annotations)
-    medleydb_train, medleydb_validation, medleydb_small_validation = common.prepare_medleydb()
-    # Prepare the datasets
-    train_dataset = datasets.AADataset(medleydb_train, args, preload_hook, dataset_transform_train)
-    medleydb_validation_dataset = datasets.AADataset(medleydb_validation, args, preload_hook, dataset_transform)
-    medleydb_small_validation_dataset = datasets.AADataset(medleydb_small_validation, args, preload_hook, dataset_transform)
+    def preload_fn(aa):
+        return aa.audio.load_resampled_audio(args["samplerate"])
 
-    network.construct(args, create_model, train_dataset.dataset.output_types, train_dataset.dataset.output_shapes, dataset_preload_hook=preload_hook, dataset_transform=dataset_transform)
+    def dataset_transform(dataset):
+        return dataset.batch(128).prefetch(1)
 
+    def dataset_transform_train(dataset):
+        return dataset.shuffle(20000).batch(args["batch_size"]).prefetch(1)
 
+    train, validation, small_validation = datasets.medleydb.prepare(preload_fn)
+
+    train_dataset = datasets.AADataset(train, args, dataset_transform_train)
+    validation_dataset = datasets.AADataset(validation, args, dataset_transform)
+    small_validation_dataset = datasets.AADataset(small_validation, args, dataset_transform)
+
+    _, _, mdb_stem_synth_small_validation = datasets.mdb_stem_synth.prepare(preload_fn)
+    mdb_stem_synth_small_validation_dataset = datasets.AADataset(mdb_stem_synth_small_validation, args, dataset_transform)
+
+    network.construct(args, create_model, train_dataset.dataset.output_types, train_dataset.dataset.output_shapes, dataset_preload_fn=preload_fn, dataset_transform=dataset_transform)
+
+epochs = 1
 validation_datasets = [
-    # VD(datasets.mdb_stem_synth.prefix, mdb_stem_synth_validation_dataset, 10000, False),
-    # VD(datasets.mdb_stem_synth.prefix+"_small", mdb_stem_synth_small_validation_dataset, 1000, True),
-    VD(datasets.medleydb.prefix, medleydb_validation_dataset, 10000, False),
-    VD(datasets.medleydb.prefix+"_small", medleydb_small_validation_dataset, 1000, True),
+    VD(datasets.mdb_stem_synth.prefix+"_small", mdb_stem_synth_small_validation_dataset, 1000, True),
+    VD(datasets.mdb_melody_synth.prefix+"_small", small_validation_dataset, 1000, True),
+    VD(datasets.mdb_melody_synth.prefix, validation_dataset, 10000, False),
 ]
 
-epochs = 10
 network.train(train_dataset, epochs, validation_datasets, save_every_n_batches=10000)
-
 network.save()
 
-print("ORCHSET evaluation")
-valid_data_orchset = datasets.orchset.dataset("data/Orchset/")
-orchset_dataset = datasets.AADataset(valid_data_orchset, args, preload_hook, dataset_transform)
-network.evaluate(orchset_dataset, print_detailed=True)
+# print("ORCHSET evaluation")
+# valid_data_orchset = datasets.orchset.dataset("data/Orchset/")
+# orchset_dataset = datasets.AADataset(valid_data_orchset, args, dataset_transform)
+# network.evaluate(orchset_dataset, print_detailed=True)
