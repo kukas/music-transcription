@@ -42,7 +42,7 @@ def create_model(self, args):
 args = {
     "threads": 6,
     "batch_size": 32,
-    "annotations_per_window": 10,
+    "annotations_per_window": 1,
     "frame_width": round(256/(44100/16000)), # frame_width of MedleyDB resampled to 16000 Hz
     "context_width": 466,
     "note_range": 128,
@@ -80,10 +80,14 @@ with network.session.graph.as_default():
     _, _, mdb_stem_synth_small_validation = datasets.mdb_stem_synth.prepare(preload_fn)
     mdb_stem_synth_small_validation_dataset = datasets.AADataset(mdb_stem_synth_small_validation, args, dataset_transform)
 
+    _, _, mdb_mf0_synth_small_validation = datasets.mdb_mf0_synth.prepare(preload_fn)
+    mdb_mf0_synth_small_validation_dataset = datasets.AADataset(mdb_mf0_synth_small_validation, args, dataset_transform)
+
     network.construct(args, create_model, train_dataset.dataset.output_types, train_dataset.dataset.output_shapes, dataset_preload_fn=preload_fn, dataset_transform=dataset_transform)
 
 epochs = 10
 validation_datasets = [
+    VD(datasets.mdb_mf0_synth.prefix+"_small", mdb_mf0_synth_small_validation_dataset, 1000, True),
     VD(datasets.mdb_stem_synth.prefix+"_small", mdb_stem_synth_small_validation_dataset, 1000, True),
     VD(datasets.mdb_melody_synth.prefix+"_small", small_validation_dataset, 1000, True),
     VD(datasets.mdb_melody_synth.prefix, validation_dataset, 10000, False),

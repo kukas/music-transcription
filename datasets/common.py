@@ -28,7 +28,7 @@ def melody_dataset_generator(dataset_audio_path, dataset_annot_path, audio_suffi
 
 def load_melody_dataset(name, dataset_iterator):
     annotated_audios = []
-    for i, (audio_path, annot_path, uid) in enumerate(dataset_iterator):
+    for audio_path, annot_path, uid in dataset_iterator:
         # prepare audio
         audio = Audio(audio_path, name+"_"+uid)
 
@@ -45,7 +45,7 @@ def load_melody_dataset(name, dataset_iterator):
 
 
 def melody_to_multif0(values):
-    return [[x] if x > 0 else [] for x in values]
+    return [np.array([x]) if x > 0 else np.array([]) for x in values]
 
 
 def multif0_to_melody(values):

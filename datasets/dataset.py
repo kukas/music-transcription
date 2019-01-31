@@ -193,7 +193,9 @@ class Annotation:
 
         self.times = np.array(times)
         self.freqs = freqs
+        self._freqs_mf0 = None
         self.notes = notes
+        self._notes_mf0 = None
         self.voicing = voicing
 
         if freqs is None:
@@ -234,6 +236,18 @@ class Annotation:
     @property
     def max_polyphony(self):
         return np.max([len(notes_frame) for notes_frame in self.notes])
+
+    @property
+    def notes_mf0(self):
+        if self._notes_mf0 is None:
+            self._notes_mf0 = [np.array(frame[:v]) for frame, v in zip(self.notes, self.voicing)]
+        return self._notes_mf0
+
+    @property
+    def freqs_mf0(self):
+        if self._freqs_mf0 is None:
+            self._freqs_mf0 = [np.array(frame[:v]) for frame, v in zip(self.freqs, self.voicing)]
+        return self._freqs_mf0
 
     def get_frame_width(self):
         if len(self.times) == 0:
@@ -285,10 +299,10 @@ class AADataset:
         dataset = tf.data.Dataset.from_generator(self._generator, output_types, output_shapes)
 
         self.dataset = dataset if dataset_transform is None else dataset.apply(dataset_transform)
+    
         print("dataset duration:", self.total_duration)
-        # polyphony_counts = [aa.annotation.max_polyphony for aa in self._annotated_audios]
-        # print("max. polyphony:", np.max(polyphony_counts))
-        # print("min. polyphony:", np.min(polyphony_counts))
+        self.max_polyphony = np.max([aa.annotation.max_polyphony for aa in self._annotated_audios])
+        print("max. polyphony:", self.max_polyphony)
 
     @property
     def total_duration(self):

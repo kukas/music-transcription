@@ -1,3 +1,12 @@
+import pandas
+import evaluation
+import datasets
+import os
+import inspect
+import time
+import visualization as vis
+import matplotlib.pyplot as plt
+import matplotlib
 from collections import defaultdict
 from collections import namedtuple
 from math import floor, ceil
@@ -8,20 +17,9 @@ import tensorflow as tf
 import mir_eval
 mir_eval.multipitch.MIN_FREQ = 1
 
-import matplotlib
-import matplotlib.pyplot as plt
-import visualization as vis
-
-import time
-
-import inspect
-import os
-
-import datasets
-import evaluation
-import pandas
 
 VD = namedtuple("ValidationDataset", ["name", "dataset", "evaluate_every", "visual_output"])
+
 
 class Network:
     def __init__(self, threads, seed=42):
@@ -30,7 +28,7 @@ class Network:
         graph.seed = seed
 
         gpu_options = tf.GPUOptions(allow_growth=True)
-        self.session = tf.Session(graph = graph, config=tf.ConfigProto(gpu_options=gpu_options,
+        self.session = tf.Session(graph=graph, config=tf.ConfigProto(gpu_options=gpu_options,
                                                                        inter_op_parallelism_threads=threads,
                                                                        intra_op_parallelism_threads=threads))
 
@@ -134,7 +132,6 @@ class Network:
                 validation_iterators.append(it)
                 validation_handles.append(self.session.run(it.string_handle()))
 
-        
         b = 0
         timer = time.time()
         for i in range(epochs):
@@ -168,15 +165,20 @@ class Network:
                 for vd, iterator, handle in zip(validation_datasets, validation_iterators, validation_handles):
                     if b % vd.evaluate_every == 0:
                         self.session.run(iterator.initializer)
-                        oa, rpa, vr, loss = self._evaluate_handle(vd.dataset, handle, dataset_name=vd.name, visual_output=vd.visual_output)
-                        print("{}: t {:.2f}, OA: {:.2f}, RPA: {:.2f}, VR: {:.2f}, Loss: {:.2f}".format(vd.name, time.time() - timer, oa, rpa, vr, loss))
+                        if vd.dataset.max_polyphony > 1:
+                            self._evaluate_handle_mf0(vd.dataset, handle, dataset_name=vd.name, visual_output=vd.visual_output)
+                            print("LOL")
+                        else:
+                            oa, rpa, vr, loss = self._evaluate_handle(vd.dataset, handle, dataset_name=vd.name, visual_output=vd.visual_output)
+                            print("{}: t {:.2f}, OA: {:.2f}, RPA: {:.2f}, VR: {:.2f}, Loss: {:.2f}".format(vd.name, time.time() - timer, oa, rpa, vr, loss))
+
                         timer = time.time()
 
                 if b % save_every_n_batches == 0:
                     self.save()
                     print("saving, t {:.2f}".format(time.time()-timer))
                     timer = time.time()
-                
+
         print("=== done ===")
 
     def _predict_handle(self, handle, additional_fetches=[]):
@@ -207,7 +209,7 @@ class Network:
             est_notes = np.concatenate(notes[uid])
 
             # if there is padding at the end of the estimation, cut it
-            zeros = np.where(est_time==0)[0]
+            zeros = np.where(est_time == 0)[0]
             if len(zeros) > 1:
                 est_time = est_time[:zeros[1]]
                 est_notes = est_notes[:zeros[1]]
@@ -228,7 +230,7 @@ class Network:
         handle = self.session.run(iterator.string_handle())
 
         return self._predict_handle(handle)
-    
+
     def _evaluate_handle(self, dataset, handle, dataset_name=None, visual_output=None, print_detailed=False):
         raise NotImplementedError()
 
@@ -256,9 +258,11 @@ class Network:
     def save(self):
         save_path = self.saver.save(self.session, self.logdir+"/model.ckpt")
         print("Model saved in path:", save_path)
+
     def restore(self):
         self.saver.restore(self.session, self.logdir+"/model.ckpt")
         print("Model restored from path:", self.logdir)
+
 
 class NetworkMelody(Network):
     def _summaries(self, args):
@@ -286,7 +290,73 @@ class NetworkMelody(Network):
 
             self.summaries = tf.summary.merge_all()
 
+    def log_summaries(self, metrics, prefix):
+        def simplify_name(name):
+            return name.lower().replace(" ", "_")
+        global_step = tf.train.global_step(self.session, self.global_step)
+
+        for name, metric in metrics.items():
+            self.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+simplify_name(name), simple_value=metric)]), global_step)
+
+    def log_visual(self, reference, estimation, note_probabilities, prefix, title):
+        global_step = tf.train.global_step(self.session, self.global_step)
+        fig = vis.draw_notes(reference, estimation, title=title)
+        img_summary = vis.fig2summary(fig)
+        self.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+"notes", image=img_summary)]), global_step)
+        plt.close()
+
+        fig = vis.draw_probs(note_probabilities, reference)
+        img_summary = vis.fig2summary(fig)
+        self.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+"probs", image=img_summary)]), global_step)
+        plt.close()
+
+    def _evaluate_handle_mf0(self, dataset, handle, dataset_name=None, visual_output=False, print_detailed=False):
+        all_metrics = []
+        reference = []
+        estimation = []
+
+        additional_fetches = [self.loss]
+        if visual_output:
+            additional_fetches.append(self.note_probabilities)
+
+        estimations, additional = self._predict_handle(handle, additional_fetches)
+
+        for uid, (est_time, est_freq) in estimations.items():
+            est_freqs = datasets.common.melody_to_multif0(est_freq)
+
+            aa = dataset.get_annotated_audio_by_uid(uid)
+
+            ref_time = aa.annotation.times
+            ref_freqs = aa.annotation.freqs_mf0
+
+            metrics = mir_eval.multipitch.evaluate(ref_time, ref_freqs, est_time, est_freqs)
+
+            all_metrics.append(metrics)
+
+            if visual_output:
+                reference += aa.annotation.notes_mf0
+                estimation += datasets.common.melody_to_multif0(datasets.common.hz_to_midi_safe(est_freq))
+
+        metrics = pandas.DataFrame(all_metrics).mean()
+        metrics["loss"] = np.mean([x[0] for x in additional])
+
+        if print_detailed:
+            print(metrics)
+
+        if dataset_name is not None:
+            prefix = "valid_{}/".format(dataset_name)
+            self.log_summaries(metrics,  prefix)
+
+        if visual_output:
+            title = ""
+            note_probabilities = np.concatenate(np.concatenate([x[1] for x in additional]), axis=0).T
+            self.log_visual(reference, estimation, note_probabilities, prefix, title)
+
+
+        return 0, 0, 0, metrics["loss"]
+
     def _evaluate_handle(self, dataset, handle, dataset_name=None, visual_output=False, print_detailed=False):
+        print(dataset_name, dataset.max_polyphony)
         all_metrics = []
         reference = []
         estimation = []
@@ -303,13 +373,12 @@ class NetworkMelody(Network):
             ref_freq = np.squeeze(aa.annotation.freqs, 1)
 
             metrics = mir_eval.melody.evaluate(ref_time, ref_freq, est_time, est_freq)
-            metrics["Track"] = uid
 
             ref_v, ref_c, est_v, est_c = mir_eval.melody.to_cent_voicing(ref_time, ref_freq, est_time, est_freq)
-            metrics["Raw 1-Harmonic Accuracy"] = evaluation.melody.raw_harmonic_accuracy(ref_v, ref_freq, est_v, est_freq, harmonics=1)
-            metrics["Raw 2-Harmonic Accuracy"] = evaluation.melody.raw_harmonic_accuracy(ref_v, ref_freq, est_v, est_freq, harmonics=2)
-            metrics["Raw 3-Harmonic Accuracy"] = evaluation.melody.raw_harmonic_accuracy(ref_v, ref_freq, est_v, est_freq, harmonics=3)
-            metrics["Raw 4-Harmonic Accuracy"] = evaluation.melody.raw_harmonic_accuracy(ref_v, ref_freq, est_v, est_freq, harmonics=4)
+            metrics["Raw 1 Harmonic Accuracy"] = evaluation.melody.raw_harmonic_accuracy(ref_v, ref_freq, est_v, est_freq, harmonics=1)
+            metrics["Raw 2 Harmonic Accuracy"] = evaluation.melody.raw_harmonic_accuracy(ref_v, ref_freq, est_v, est_freq, harmonics=2)
+            metrics["Raw 3 Harmonic Accuracy"] = evaluation.melody.raw_harmonic_accuracy(ref_v, ref_freq, est_v, est_freq, harmonics=3)
+            metrics["Raw 4 Harmonic Accuracy"] = evaluation.melody.raw_harmonic_accuracy(ref_v, ref_freq, est_v, est_freq, harmonics=4)
             metrics["Overall Chroma Accuracy"] = evaluation.melody.overall_chroma_accuracy(ref_v, ref_c, est_v, est_c)
             metrics["Voicing Accuracy"] = evaluation.melody.voicing_accuracy(ref_v, est_v)
             metrics["Voiced Frames Proportion"] = est_v.sum() / len(est_v) if len(est_v) > 0 else 0
@@ -317,37 +386,19 @@ class NetworkMelody(Network):
             all_metrics.append(metrics)
 
             if visual_output:
-                reference.append(aa.annotation.notes)
+                reference += aa.annotation.notes_mf0
                 estimation.append(datasets.common.hz_to_midi_safe(est_freq))
 
         metrics = pandas.DataFrame(all_metrics).mean()
+        metrics["loss"] = np.mean([x[0] for x in additional])
 
         if print_detailed:
             print(metrics)
 
-        # write evaluation metrics to tf summary
-        
-        loss = np.mean([x[0] for x in additional])
-        summaries = [
-            ("loss", loss),
-            ("raw_1_harmonic_accuracy", metrics['Raw 1-Harmonic Accuracy']),
-            ("raw_2_harmonic_accuracy", metrics['Raw 2-Harmonic Accuracy']),
-            ("raw_3_harmonic_accuracy", metrics['Raw 3-Harmonic Accuracy']),
-            ("raw_4_harmonic_accuracy", metrics['Raw 4-Harmonic Accuracy']),
-            ("voicing_accuracy", metrics['Voicing Accuracy']),
-            ("voiced_frames_proportion", metrics['Voiced Frames Proportion']),
-            ("voicing_recall", metrics['Voicing Recall']),
-            ("voicing_false_alarm", metrics['Voicing False Alarm']),
-            ("raw_pitch_accuracy", metrics['Raw Pitch Accuracy']),
-            ("raw_chroma_accuracy", metrics['Raw Chroma Accuracy']),
-            ("overall_chroma_accuracy", metrics['Overall Chroma Accuracy']),
-            ("overall_accuracy", metrics['Overall Accuracy']),
-        ]
-        global_step = tf.train.global_step(self.session, self.global_step)
-        prefix = "valid_{}/".format(dataset_name)
+
         if dataset_name is not None:
-            for name, metric in summaries:
-                self.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+name, simple_value=metric)]), global_step)
+            prefix = "valid_{}/".format(dataset_name)
+            self.log_summaries(metrics,  prefix)
 
         if visual_output:
             title = "OA: {:.2f}, RPA: {:.2f}, RCA: {:.2f}, VR: {:.2f}, VFA: {:.2f}".format(
@@ -357,21 +408,8 @@ class NetworkMelody(Network):
                 metrics['Voicing Recall'],
                 metrics['Voicing False Alarm']
                 )
-            reference = datasets.common.melody_to_multif0(np.concatenate(reference))
-            estimation = datasets.common.melody_to_multif0(np.concatenate(estimation))
-            fig = vis.draw_notes(reference, estimation, title=title)
-            img_summary = vis.fig2summary(fig)
-            self.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+"notes", image=img_summary)]), global_step)
-            plt.close()
-
+            estimation = datasets.common.melody_to_multif0(np.concatenate(estimation)) 
             note_probabilities = np.concatenate(np.concatenate([x[1] for x in additional]), axis=0).T
-            fig = vis.draw_probs(note_probabilities, reference)
-            img_summary = vis.fig2summary(fig)
-            self.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+"probs", image=img_summary)]), global_step)
-            plt.close()
+            self.log_visual(reference, estimation, note_probabilities, prefix, title)
 
-        #     # suppress inline mode
-        #     if not print_detailed:
-        #         plt.close()
-
-        return metrics['Overall Accuracy'], metrics['Raw Pitch Accuracy'], metrics['Voicing Recall'], loss
+        return metrics['Overall Accuracy'], metrics['Raw Pitch Accuracy'], metrics['Voicing Recall'], metrics["loss"]
