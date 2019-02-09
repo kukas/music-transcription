@@ -45,28 +45,32 @@ def load_melody_dataset(name, dataset_iterator):
 
 
 def melody_to_multif0(values):
-    return [np.array([x]) if x > 0 else np.array([]) for x in values]
+    return [np.array([]) if x == 0 else np.array([x]) for x in values]
 
 
 def multif0_to_melody(values):
-    return np.array([x[0] if len(x) > 0 else 0 for x in values])
+    return np.array([0 if len(x) == 0 else x[0] for x in values])
 
 
 def _hz_to_midi_safe(x):
-    if x > 0:
-        return mir_eval.util.hz_to_midi(x)
-    else:
+    if x == 0:
         return 0
+    elif x < 0:
+        return -mir_eval.util.hz_to_midi(-x)
+    else:
+        return mir_eval.util.hz_to_midi(x)
 
 
 hz_to_midi_safe = np.vectorize(_hz_to_midi_safe, otypes=[float])
 
 
 def _midi_to_hz_safe(x):
-    if x > 0:
-        return mir_eval.util.midi_to_hz(x)
-    else:
+    if x == 0:
         return 0
+    elif x < 0:
+        return -mir_eval.util.midi_to_hz(-x)
+    else:
+        return mir_eval.util.midi_to_hz(x)
 
 
 midi_to_hz_safe = np.vectorize(_midi_to_hz_safe, otypes=[float])

@@ -11,6 +11,8 @@ import datasets
 
 from . import melody
 
+import visualization as vis
+
 modulepath = os.path.dirname(os.path.abspath(__file__))
 
 def get_dataset_list():
@@ -72,10 +74,12 @@ def evaluate_dataset_melody(refs, ests, per_track_info=False):
         all_scores.append(scores)
 
         if per_track_info:
-            plt.figure(figsize=(15, 7))
-            plt.title(filename)
-            plt.plot(ref_time, ref_freq, '.k', markersize=8)
-            plt.plot(est_time, est_freq, '.r', markersize=3)
+            est_voicing = est_freq > 0
+            est_freq, est_voicing = mir_eval.melody.resample_melody_series(est_time, est_freq, est_voicing, ref_time, "linear")
+
+            ref = datasets.common.melody_to_multif0(datasets.common.hz_to_midi_safe(ref_freq))
+            est = datasets.common.melody_to_multif0(datasets.common.hz_to_midi_safe(est_freq))
+            vis.draw_notes(ref, est)
             plt.show()
 
             for k,v in scores.items():
