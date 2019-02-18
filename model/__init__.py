@@ -370,16 +370,22 @@ class NetworkMelody(Network):
             aa = dataset.get_annotated_audio_by_uid(uid)
 
             ref_time = aa.annotation.times
-            ref_freq = np.squeeze(aa.annotation.freqs, 1)
 
             metrics = mir_eval.melody.evaluate(ref_time, ref_freq, est_time, est_freq)
 
-            ref_v, ref_c, est_v, est_c = mir_eval.melody.to_cent_voicing(ref_time, ref_freq, est_time, est_freq)
+            ref_v = ref_freq > 0
+            est_v = est_freq > 0
+
+            est_freq, est_v = mir_eval.melody.resample_melody_series(est_time, est_freq, est_v, ref_time, "linear")
+
             metrics["Raw 1 Harmonic Accuracy"] = evaluation.melody.raw_harmonic_accuracy(ref_v, ref_freq, est_v, est_freq, harmonics=1)
             metrics["Raw 2 Harmonic Accuracy"] = evaluation.melody.raw_harmonic_accuracy(ref_v, ref_freq, est_v, est_freq, harmonics=2)
             metrics["Raw 3 Harmonic Accuracy"] = evaluation.melody.raw_harmonic_accuracy(ref_v, ref_freq, est_v, est_freq, harmonics=3)
             metrics["Raw 4 Harmonic Accuracy"] = evaluation.melody.raw_harmonic_accuracy(ref_v, ref_freq, est_v, est_freq, harmonics=4)
-            metrics["Overall Chroma Accuracy"] = evaluation.melody.overall_chroma_accuracy(ref_v, ref_c, est_v, est_c)
+            
+            timefreq_series = mir_eval.melody.to_cent_voicing(ref_time, ref_freq, ref_time, est_freq)
+            metrics["Overall Chroma Accuracy"] = evaluation.melody.overall_chroma_accuracy(*timefreq_series)
+            
             metrics["Voicing Accuracy"] = evaluation.melody.voicing_accuracy(ref_v, est_v)
             metrics["Voiced Frames Proportion"] = est_v.sum() / len(est_v) if len(est_v) > 0 else 0
 
