@@ -167,7 +167,7 @@ class Network:
                         self.session.run(iterator.initializer)
                         if vd.dataset.max_polyphony > 1:
                             self._evaluate_handle_mf0(vd.dataset, handle, dataset_name=vd.name, visual_output=vd.visual_output)
-                            print("LOL")
+                            print("{}: t {:.2f}".format(vd.name, time.time() - timer))
                         else:
                             oa, rpa, vr, loss = self._evaluate_handle(vd.dataset, handle, dataset_name=vd.name, visual_output=vd.visual_output)
                             print("{}: t {:.2f}, OA: {:.2f}, RPA: {:.2f}, VR: {:.2f}, Loss: {:.2f}".format(vd.name, time.time() - timer, oa, rpa, vr, loss))
@@ -310,6 +310,11 @@ class NetworkMelody(Network):
         self.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+"probs", image=img_summary)]), global_step)
         plt.close()
 
+        fig = vis.draw_confusion(reference, estimation)
+        img_summary = vis.fig2summary(fig)
+        self.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+"confusion", image=img_summary)]), global_step)
+        plt.close()
+
     def _evaluate_handle_mf0(self, dataset, handle, dataset_name=None, visual_output=False, print_detailed=False):
         all_metrics = []
         reference = []
@@ -356,7 +361,6 @@ class NetworkMelody(Network):
         return 0, 0, 0, metrics["loss"]
 
     def _evaluate_handle(self, dataset, handle, dataset_name=None, visual_output=False, print_detailed=False):
-        print(dataset_name, dataset.max_polyphony)
         all_metrics = []
         reference = []
         estimation = []
