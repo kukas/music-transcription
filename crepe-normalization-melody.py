@@ -110,8 +110,7 @@ args = {
 }
 
 # To restore model from a checkpoint
-
-args["logdir"] = "models/crepe_4mult_normalized-01-25_181717-bs32-apw1-fw93-ctx978-nr128-sr16000"
+# args["logdir"] = "models/crepe_4mult_normalized-01-25_181717-bs32-apw1-fw93-ctx978-nr128-sr16000"
 
 name_normalized = ("_normalized" if args["input_normalization"] else "")
 common.name(args, "crepe_{}mult{}".format(args["capacity_multiplier"], name_normalized))
@@ -130,20 +129,37 @@ with network.session.graph.as_default():
     def dataset_transform_train(dataset):
         return dataset.shuffle(20000).batch(args["batch_size"]).prefetch(1)
 
-    train, validation, small_validation = datasets.mdb_melody_synth.prepare(preload_fn)
+    wjazzd_train, wjazzd_validation, wjazzd_small_validation = datasets.wjazzd.prepare(preload_fn)
+    wjazzd_validation_dataset = datasets.AADataset(wjazzd_validation, args, dataset_transform)
+    wjazzd_small_validation_dataset = datasets.AADataset(wjazzd_small_validation, args, dataset_transform)
 
-    train_dataset = datasets.AADataset(train, args, dataset_transform_train)
-    validation_dataset = datasets.AADataset(validation, args, dataset_transform)
-    small_validation_dataset = datasets.AADataset(small_validation, args, dataset_transform)
+    medleydb_train, medleydb_validation, medleydb_small_validation = datasets.medleydb.prepare(preload_fn)
+    medleydb_validation_dataset = datasets.AADataset(medleydb_validation, args, dataset_transform)
+    medleydb_small_validation_dataset = datasets.AADataset(medleydb_small_validation, args, dataset_transform)
+
+    mdb_melody_synth_train, mdb_melody_synth_validation, _ = datasets.mdb_melody_synth.prepare(preload_fn)
+    mdb_melody_synth_validation_dataset = datasets.AADataset(mdb_melody_synth_validation, args, dataset_transform)
+
+    mdb_stem_synth_train, _, mdb_stem_synth_small_validation = datasets.mdb_stem_synth.prepare(preload_fn)
+    mdb_stem_synth_small_validation_dataset = datasets.AADataset(mdb_stem_synth_small_validation, args, dataset_transform)
+
+    _, _, mdb_mf0_synth_small_validation = datasets.mdb_mf0_synth.prepare(preload_fn)
+    mdb_mf0_synth_small_validation_dataset = datasets.AADataset(mdb_mf0_synth_small_validation, args, dataset_transform)
+
+    train_dataset = datasets.AADataset(medleydb_train+wjazzd_train+mdb_stem_synth_train+mdb_melody_synth_train, args, dataset_transform_train)
 
     network.construct(args, create_model, train_dataset.dataset.output_types, train_dataset.dataset.output_shapes, dataset_preload_fn=preload_fn, dataset_transform=dataset_transform)
 
-epochs = 10
+    validation_datasets = [
+        VD(datasets.mdb_mf0_synth.prefix+"_small", mdb_mf0_synth_small_validation_dataset, 3000, True),
+        VD(datasets.mdb_stem_synth.prefix+"_small", mdb_stem_synth_small_validation_dataset, 3000, True),
+        VD(datasets.medleydb.prefix+"_small", medleydb_small_validation_dataset, 3000, True),
+        VD(datasets.medleydb.prefix, medleydb_validation_dataset, 20000, False),
+        VD(datasets.mdb_melody_synth.prefix, mdb_melody_synth_validation_dataset, 30000, False),
+        VD(datasets.wjazzd.prefix, wjazzd_validation_dataset, 30000, False),
+    ]
 
-validation_datasets = [
-    VD(datasets.mdb_melody_synth.prefix+"_small", small_validation_dataset, 1000, True),
-    VD(datasets.mdb_melody_synth.prefix, validation_dataset, 10000, False),
-]
+epochs = 3
 
 network.train(train_dataset, epochs, validation_datasets, save_every_n_batches=10000)
 network.save()

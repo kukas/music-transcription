@@ -21,3 +21,25 @@ def generator(dataset_root):
 
 def dataset(dataset_root):
     return load_melody_dataset(prefix, generator(dataset_root))
+
+
+def prepare(preload_fn):
+    wjazzd_split = get_split()
+
+    def wjazzd_gen_split(name):
+        gen = generator(os.path.join(modulepath, "..", "data", "WJazzD"))
+        return filter(lambda x: x.uid in wjazzd_split[name], gen)
+
+    train_data = load_melody_dataset(prefix, wjazzd_gen_split("train"))
+    valid_data = load_melody_dataset(prefix, wjazzd_gen_split("validation"))
+
+    for aa in train_data+valid_data:
+        preload_fn(aa)
+
+    # TODO: choose better small validation
+    small_validation_data = [
+        valid_data[14].slice(10, 20),
+        valid_data[49].slice(10, 20),
+    ]
+
+    return train_data, valid_data, small_validation_data
