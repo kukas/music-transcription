@@ -30,7 +30,6 @@ def flatten(notesets):
 
 def draw_notes(ref, est, style=".", title=None):
     fig, ax = plt.subplots(figsize=(15, 6))
-    # ax.set_ylim(0, 128)
     if title:
         ax.set_title(title)
     ax.set(xlabel='frame', ylabel='midi note')
@@ -68,6 +67,9 @@ def draw_notes(ref, est, style=".", title=None):
         ax.plot(indices_incorrect_negative, incorrect_negative, style, color="#ff00ff", label="EST incorrect negative", markersize=ms)
 
     ax.legend()
+
+    bottom, top = ax.get_ylim()
+    ax.set_ylim(max(0, bottom), min(128, top))
     
     plt.tight_layout()
 
