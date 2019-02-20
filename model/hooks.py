@@ -154,3 +154,15 @@ class MetricsHook_mf0(EvaluationHook_mf0, MetricsHook):
 
 class VisualOutputHook_mf0(EvaluationHook_mf0, VisualOutputHook):
     pass
+
+
+class SaveBestModelHook(EvaluationHook):
+    def __init__(self):
+        self.best_oa = 0
+
+    def after_run(self, ctx, vd, additional):
+        oa = ctx.metrics['Overall Accuracy']
+        if oa > self.best_oa:
+            self.best_oa = oa
+            print("Saving best model, OA = {:.2f}".format(oa))
+            ctx.save("model-best-{}".format(vd.name))

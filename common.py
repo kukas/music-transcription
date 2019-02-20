@@ -2,7 +2,7 @@ import tensorflow as tf
 import json
 import datasets
 import datetime
-from model import VD, VisualOutputHook, MetricsHook, MetricsHook_mf0, VisualOutputHook_mf0
+from model import VD, VisualOutputHook, MetricsHook, MetricsHook_mf0, VisualOutputHook_mf0, SaveBestModelHook
 
 def name(args, prefix=""):
     if "logdir" not in args:
@@ -83,8 +83,15 @@ def mdb_datasets(args, preload_fn, dataset_transform, dataset_transform_train):
     train_dataset = datasets.AADataset(medleydb_train, args, dataset_transform_train, shuffle=True)
 
     validation_datasets = [
-        VD("small_"+datasets.medleydb.prefix, medleydb_small_validation_dataset, 3000, [MetricsHook(True), VisualOutputHook(True, True, False)]),
-        VD(datasets.medleydb.prefix, medleydb_validation_dataset, 20000, [MetricsHook(False), VisualOutputHook(False, False, True)]),
+        VD("small_"+datasets.medleydb.prefix, medleydb_small_validation_dataset, 3000, [
+            MetricsHook(),
+            VisualOutputHook(True, True, False)
+            ]),
+        VD(datasets.medleydb.prefix, medleydb_validation_dataset, 20000, [
+            MetricsHook(),
+            VisualOutputHook(False, False, True),
+            SaveBestModelHook()
+            ]),
     ]
 
     return train_dataset, validation_datasets

@@ -251,8 +251,8 @@ class Network:
         text = tf.convert_to_tensor([[str(k), str(v)] for k, v in args.items()])
         self.summary_writer.add_summary(self.session.run(tf.summary.text("hyperparameters", text)))
 
-    def save(self):
-        save_path = self.saver.save(self.session, self.logdir+"/model.ckpt")
+    def save(self, name="model"):
+        save_path = self.saver.save(self.session, self.logdir+"/"+name+".ckpt")
         print("Model saved in path:", save_path)
 
     def restore(self):
