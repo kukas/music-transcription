@@ -8,6 +8,8 @@ import tensorflow as tf
 
 import datasets
 
+np.random.seed(42)
+
 PROCESSED_FILES_PATH = "./processed"
 CACHED_FILES_PATH = "./cached"
 
@@ -269,7 +271,7 @@ class Annotation:
         return Annotation(sliced_times, sliced_freqs, sliced_notes, sliced_voicing)
 
 class AADataset:
-    def __init__(self, _annotated_audios, args, dataset_transform=None):
+    def __init__(self, _annotated_audios, args, dataset_transform=None, shuffle=False):
         self._annotated_audios = _annotated_audios
 
         # self.frame_width = int(np.round(aa.annotation.get_frame_width()*self.samplerate))
@@ -292,7 +294,23 @@ class AADataset:
 
         self.samplerate = _annotated_audios[0].audio.samplerate
 
-        index_dataset = tf.data.Dataset.from_generator(self._indextuple_generator, (tf.int32, tf.int32), ([], []))
+        # generate example positions all at once so that we can shuffle them as a whole
+        indices = []
+        for aa_index, aa in enumerate(self._annotated_audios):
+            if self.window_size > aa.audio.samples_count:
+                raise RuntimeError("Window size is bigger than the audio.")
+
+            annots = len(aa.annotation.times)
+            annotation_indices = np.arange(0, annots, self.annotations_per_window, dtype=np.int32)
+            aa_indices = np.full((annots,), aa_index, dtype=np.int32)
+
+            indices.append(np.stack((aa_indices, annotation_indices), axis=-1))
+        indices = np.concatenate(indices)
+        
+        if shuffle:
+            indices = np.random.permutation(indices)
+
+        index_dataset = tf.data.Dataset.from_tensor_slices((indices.T[0], indices.T[1]))
 
         self.dataset = index_dataset if dataset_transform is None else index_dataset.apply(lambda tf_dataset: dataset_transform(tf_dataset, self))
 
@@ -320,14 +338,6 @@ class AADataset:
     @property
     def total_examples(self):
         return sum([len(aa.annotation.times)//self.annotations_per_window for aa in self._annotated_audios])
-
-    def _indextuple_generator(self):
-        for aa_index, aa in enumerate(self._annotated_audios):
-            if self.window_size > aa.audio.samples_count:
-                raise RuntimeError("Window size is bigger than the audio.")
-
-            for annotation_index in range(0, len(aa.annotation.times), self.annotations_per_window):
-                yield (aa_index, annotation_index)
 
     def all_samples(self):
         samples = [aa.audio.samples for aa in self._annotated_audios]

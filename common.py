@@ -57,7 +57,7 @@ def all_datasets(args, preload_fn, dataset_transform, dataset_transform_train):
     _, _, mdb_mf0_synth_small_validation = datasets.mdb_mf0_synth.prepare(preload_fn)
     mdb_mf0_synth_small_validation_dataset = datasets.AADataset(mdb_mf0_synth_small_validation, args, dataset_transform)
 
-    train_dataset = datasets.AADataset(medleydb_train+wjazzd_train+mdb_stem_synth_train+mdb_melody_synth_train, args, dataset_transform_train)
+    train_dataset = datasets.AADataset(medleydb_train+wjazzd_train+mdb_stem_synth_train+mdb_melody_synth_train, args, dataset_transform_train, shuffle=True)
 
     validation_datasets = [
         VD(datasets.mdb_mf0_synth.prefix+"_small", mdb_mf0_synth_small_validation_dataset, 3000, True),
@@ -77,7 +77,7 @@ def mdb_datasets(args, preload_fn, dataset_transform, dataset_transform_train):
     medleydb_validation_dataset = datasets.AADataset(medleydb_validation, args, dataset_transform)
     medleydb_small_validation_dataset = datasets.AADataset(medleydb_small_validation, args, dataset_transform)
 
-    train_dataset = datasets.AADataset(medleydb_train, args, dataset_transform_train)
+    train_dataset = datasets.AADataset(medleydb_train, args, dataset_transform_train, shuffle=True)
 
     validation_datasets = [
         VD(datasets.medleydb.prefix+"_small", medleydb_small_validation_dataset, 3000, True),

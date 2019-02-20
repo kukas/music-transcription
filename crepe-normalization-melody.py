@@ -127,7 +127,7 @@ with network.session.graph.as_default():
         return tf_dataset.map(dataset.prepare_example, num_parallel_calls=4).batch(128).prefetch(1)
 
     def dataset_transform_train(tf_dataset, dataset):
-        return tf_dataset.shuffle(10**6).map(dataset.prepare_example, num_parallel_calls=4).batch(args["batch_size"]).prefetch(1)
+        return tf_dataset.shuffle(10**5).map(dataset.prepare_example, num_parallel_calls=4).batch(args["batch_size"]).prefetch(1)
 
     train_dataset, validation_datasets = common.all_datasets(args, preload_fn, dataset_transform, dataset_transform_train)
 
