@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 
 import datasets
-from model import NetworkMelody, VD
+from model import NetworkMelody
 from collections import namedtuple
 
 import common
@@ -123,41 +123,16 @@ with network.session.graph.as_default():
 
     def preload_fn(aa): return aa.audio.load_resampled_audio(args["samplerate"])
 
-    def dataset_transform(dataset):
-        return dataset.batch(128).prefetch(1)
+    def dataset_transform(tf_dataset, dataset):
+        return tf_dataset.map(dataset.prepare_example, num_parallel_calls=4).batch(128).prefetch(1)
 
-    def dataset_transform_train(dataset):
-        return dataset.shuffle(20000).batch(args["batch_size"]).prefetch(1)
+    def dataset_transform_train(tf_dataset, dataset):
+        return tf_dataset.shuffle(10**6).map(dataset.prepare_example, num_parallel_calls=4).batch(args["batch_size"]).prefetch(1)
 
-    wjazzd_train, wjazzd_validation, wjazzd_small_validation = datasets.wjazzd.prepare(preload_fn)
-    wjazzd_validation_dataset = datasets.AADataset(wjazzd_validation, args, dataset_transform)
-    wjazzd_small_validation_dataset = datasets.AADataset(wjazzd_small_validation, args, dataset_transform)
-
-    medleydb_train, medleydb_validation, medleydb_small_validation = datasets.medleydb.prepare(preload_fn)
-    medleydb_validation_dataset = datasets.AADataset(medleydb_validation, args, dataset_transform)
-    medleydb_small_validation_dataset = datasets.AADataset(medleydb_small_validation, args, dataset_transform)
-
-    mdb_melody_synth_train, mdb_melody_synth_validation, _ = datasets.mdb_melody_synth.prepare(preload_fn)
-    mdb_melody_synth_validation_dataset = datasets.AADataset(mdb_melody_synth_validation, args, dataset_transform)
-
-    mdb_stem_synth_train, _, mdb_stem_synth_small_validation = datasets.mdb_stem_synth.prepare(preload_fn)
-    mdb_stem_synth_small_validation_dataset = datasets.AADataset(mdb_stem_synth_small_validation, args, dataset_transform)
-
-    _, _, mdb_mf0_synth_small_validation = datasets.mdb_mf0_synth.prepare(preload_fn)
-    mdb_mf0_synth_small_validation_dataset = datasets.AADataset(mdb_mf0_synth_small_validation, args, dataset_transform)
-
-    train_dataset = datasets.AADataset(medleydb_train+wjazzd_train+mdb_stem_synth_train+mdb_melody_synth_train, args, dataset_transform_train)
+    train_dataset, validation_datasets = common.all_datasets(args, preload_fn, dataset_transform, dataset_transform_train)
 
     network.construct(args, create_model, train_dataset.dataset.output_types, train_dataset.dataset.output_shapes, dataset_preload_fn=preload_fn, dataset_transform=dataset_transform)
 
-    validation_datasets = [
-        VD(datasets.mdb_mf0_synth.prefix+"_small", mdb_mf0_synth_small_validation_dataset, 3000, True),
-        VD(datasets.mdb_stem_synth.prefix+"_small", mdb_stem_synth_small_validation_dataset, 3000, True),
-        VD(datasets.medleydb.prefix+"_small", medleydb_small_validation_dataset, 3000, True),
-        VD(datasets.medleydb.prefix, medleydb_validation_dataset, 20000, False),
-        VD(datasets.mdb_melody_synth.prefix, mdb_melody_synth_validation_dataset, 30000, False),
-        VD(datasets.wjazzd.prefix, wjazzd_validation_dataset, 30000, False),
-    ]
 
 epochs = 3
 
