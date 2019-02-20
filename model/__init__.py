@@ -1,3 +1,4 @@
+from .hooks import *
 import pandas
 import evaluation
 import datasets
@@ -18,7 +19,7 @@ import mir_eval
 mir_eval.multipitch.MIN_FREQ = 1
 
 
-VD = namedtuple("ValidationDataset", ["name", "dataset", "evaluate_every", "visual_output"])
+VD = namedtuple("ValidationDataset", ["name", "dataset", "evaluate_every", "hooks"])
 
 
 class Network:
@@ -165,13 +166,8 @@ class Network:
                 for vd, iterator, handle in zip(validation_datasets, validation_iterators, validation_handles):
                     if b % vd.evaluate_every == 0:
                         self.session.run(iterator.initializer)
-                        if vd.dataset.max_polyphony > 1:
-                            self._evaluate_handle_mf0(vd.dataset, handle, dataset_name=vd.name, visual_output=vd.visual_output)
-                            print("{}: t {:.2f}".format(vd.name, time.time() - timer))
-                        else:
-                            oa, rpa, vr, loss = self._evaluate_handle(vd.dataset, handle, dataset_name=vd.name, visual_output=vd.visual_output)
-                            print("{}: t {:.2f}, OA: {:.2f}, RPA: {:.2f}, VR: {:.2f}, Loss: {:.2f}".format(vd.name, time.time() - timer, oa, rpa, vr, loss))
-
+                        self._evaluate_handle(vd, handle)
+                        print("  time: {:.2f}".format(time.time() - timer))
                         timer = time.time()
 
                 if b % save_every_n_batches == 0:
@@ -220,7 +216,7 @@ class Network:
         if additional_fetches:
             return estimations, additional
 
-        return estimations
+        return estimations, []
 
     def predict(self, dataset_iterator, name="predict"):
         predict_data = datasets.load_melody_dataset(name, dataset_iterator)
@@ -290,137 +286,21 @@ class NetworkMelody(Network):
 
             self.summaries = tf.summary.merge_all()
 
-    def log_summaries(self, metrics, prefix):
-        def simplify_name(name):
-            return name.lower().replace(" ", "_")
-        global_step = tf.train.global_step(self.session, self.global_step)
+    def _evaluate_handle(self, vd, handle):
+        additional_fetches = []
 
-        for name, metric in metrics.items():
-            self.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+simplify_name(name), simple_value=metric)]), global_step)
-
-    def log_visual(self, reference, estimation, note_probabilities, prefix, title):
-        global_step = tf.train.global_step(self.session, self.global_step)
-        fig = vis.draw_notes(reference, estimation, title=title)
-        img_summary = vis.fig2summary(fig)
-        self.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+"notes", image=img_summary)]), global_step)
-        plt.close()
-
-        fig = vis.draw_probs(note_probabilities, reference)
-        img_summary = vis.fig2summary(fig)
-        self.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+"probs", image=img_summary)]), global_step)
-        plt.close()
-
-        fig = vis.draw_confusion(reference, estimation)
-        img_summary = vis.fig2summary(fig)
-        self.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+"confusion", image=img_summary)]), global_step)
-        plt.close()
-
-    def _evaluate_handle_mf0(self, dataset, handle, dataset_name=None, visual_output=False, print_detailed=False):
-        all_metrics = []
-        reference = []
-        estimation = []
-
-        additional_fetches = [self.loss]
-        if visual_output:
-            additional_fetches.append(self.note_probabilities)
+        for hook in vd.hooks:
+            hook_fetches = hook.before_run(self, vd)
+            if hook_fetches is not None:
+                additional_fetches += hook_fetches
 
         estimations, additional = self._predict_handle(handle, additional_fetches)
 
         for uid, (est_time, est_freq) in estimations.items():
-            est_freqs = datasets.common.melody_to_multif0(est_freq)
+            aa = vd.dataset.get_annotated_audio_by_uid(uid)
 
-            aa = dataset.get_annotated_audio_by_uid(uid)
+            for hook in vd.hooks:
+                hook.every_aa(self, vd, aa, est_time, est_freq)
 
-            ref_time = aa.annotation.times
-            ref_freqs = aa.annotation.freqs_mf0
-
-            metrics = mir_eval.multipitch.evaluate(ref_time, ref_freqs, est_time, est_freqs)
-
-            all_metrics.append(metrics)
-
-            if visual_output:
-                reference += aa.annotation.notes_mf0
-                estimation += datasets.common.melody_to_multif0(datasets.common.hz_to_midi_safe(est_freq))
-
-        metrics = pandas.DataFrame(all_metrics).mean()
-        metrics["loss"] = np.mean([x[0] for x in additional])
-
-        if print_detailed:
-            print(metrics)
-
-        if dataset_name is not None:
-            prefix = "valid_{}/".format(dataset_name)
-            self.log_summaries(metrics,  prefix)
-
-        if visual_output:
-            title = ""
-            note_probabilities = np.concatenate(np.concatenate([x[1] for x in additional]), axis=0).T
-            self.log_visual(reference, estimation, note_probabilities, prefix, title)
-
-
-        return 0, 0, 0, metrics["loss"]
-
-    def _evaluate_handle(self, dataset, handle, dataset_name=None, visual_output=False, print_detailed=False):
-        all_metrics = []
-        reference = []
-        estimation = []
-
-        additional_fetches = [self.loss]
-        if visual_output:
-            additional_fetches.append(self.note_probabilities)
-        estimations, additional = self._predict_handle(handle, additional_fetches)
-
-        for uid, (est_time, est_freq) in estimations.items():
-            aa = dataset.get_annotated_audio_by_uid(uid)
-
-            ref_time = aa.annotation.times
-            ref_freq = np.squeeze(aa.annotation.freqs, 1)
-
-            metrics = mir_eval.melody.evaluate(ref_time, ref_freq, est_time, est_freq)
-
-            ref_v = ref_freq > 0
-            est_v = est_freq > 0
-
-            est_freq, est_v = mir_eval.melody.resample_melody_series(est_time, est_freq, est_v, ref_time, "linear")
-
-            metrics["Raw 1 Harmonic Accuracy"] = evaluation.melody.raw_harmonic_accuracy(ref_v, ref_freq, est_v, est_freq, harmonics=1)
-            metrics["Raw 2 Harmonic Accuracy"] = evaluation.melody.raw_harmonic_accuracy(ref_v, ref_freq, est_v, est_freq, harmonics=2)
-            metrics["Raw 3 Harmonic Accuracy"] = evaluation.melody.raw_harmonic_accuracy(ref_v, ref_freq, est_v, est_freq, harmonics=3)
-            metrics["Raw 4 Harmonic Accuracy"] = evaluation.melody.raw_harmonic_accuracy(ref_v, ref_freq, est_v, est_freq, harmonics=4)
-            
-            timefreq_series = mir_eval.melody.to_cent_voicing(ref_time, ref_freq, ref_time, est_freq)
-            metrics["Overall Chroma Accuracy"] = evaluation.melody.overall_chroma_accuracy(*timefreq_series)
-            
-            metrics["Voicing Accuracy"] = evaluation.melody.voicing_accuracy(ref_v, est_v)
-            metrics["Voiced Frames Proportion"] = est_v.sum() / len(est_v) if len(est_v) > 0 else 0
-
-            all_metrics.append(metrics)
-
-            if visual_output:
-                reference += aa.annotation.notes_mf0
-                estimation.append(datasets.common.hz_to_midi_safe(est_freq))
-
-        metrics = pandas.DataFrame(all_metrics).mean()
-        metrics["loss"] = np.mean([x[0] for x in additional])
-
-        if print_detailed:
-            print(metrics)
-
-
-        if dataset_name is not None:
-            prefix = "valid_{}/".format(dataset_name)
-            self.log_summaries(metrics,  prefix)
-
-        if visual_output:
-            title = "OA: {:.2f}, RPA: {:.2f}, RCA: {:.2f}, VR: {:.2f}, VFA: {:.2f}".format(
-                metrics['Overall Accuracy'],
-                metrics['Raw Pitch Accuracy'],
-                metrics['Raw Chroma Accuracy'],
-                metrics['Voicing Recall'],
-                metrics['Voicing False Alarm']
-                )
-            estimation = datasets.common.melody_to_multif0(np.concatenate(estimation)) 
-            note_probabilities = np.concatenate(np.concatenate([x[1] for x in additional]), axis=0).T
-            self.log_visual(reference, estimation, note_probabilities, prefix, title)
-
-        return metrics['Overall Accuracy'], metrics['Raw Pitch Accuracy'], metrics['Voicing Recall'], metrics["loss"]
+        for hook in vd.hooks:
+            hook.after_run(self, vd, additional)

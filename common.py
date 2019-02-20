@@ -2,7 +2,7 @@ import tensorflow as tf
 import json
 import datasets
 import datetime
-from model import VD
+from model import VD, VisualOutputHook, MetricsHook, MetricsHook_mf0, VisualOutputHook_mf0
 
 def name(args, prefix=""):
     if "logdir" not in args:
@@ -59,14 +59,17 @@ def all_datasets(args, preload_fn, dataset_transform, dataset_transform_train):
 
     train_dataset = datasets.AADataset(medleydb_train+wjazzd_train+mdb_stem_synth_train+mdb_melody_synth_train, args, dataset_transform_train, shuffle=True)
 
-    validation_datasets = [
-        VD(datasets.mdb_mf0_synth.prefix+"_small", mdb_mf0_synth_small_validation_dataset, 3000, True),
-        VD(datasets.mdb_stem_synth.prefix+"_small", mdb_stem_synth_small_validation_dataset, 3000, True),
-        VD(datasets.medleydb.prefix+"_small", medleydb_small_validation_dataset, 3000, True),
-        VD(datasets.wjazzd.prefix+"_small", wjazzd_small_validation_dataset, 3000, True),
-        VD(datasets.medleydb.prefix, medleydb_validation_dataset, 20000, False),
-        VD(datasets.mdb_melody_synth.prefix, mdb_melody_synth_validation_dataset, 30000, False),
-        VD(datasets.wjazzd.prefix, wjazzd_validation_dataset, 30000, False),
+    small_hooks_mf0 = [MetricsHook_mf0(), VisualOutputHook_mf0(True, True, True)]
+    small_hooks = [MetricsHook(), VisualOutputHook(True, True, False)]
+    valid_hooks = [MetricsHook(), VisualOutputHook(False, False, True)]
+    validation_datasets=[
+        VD("small_"+datasets.mdb_mf0_synth.prefix, mdb_mf0_synth_small_validation_dataset, 3000, small_hooks_mf0),
+        VD("small_"+datasets.mdb_stem_synth.prefix, mdb_stem_synth_small_validation_dataset, 3000, small_hooks),
+        VD("small_"+datasets.medleydb.prefix, medleydb_small_validation_dataset, 3000, small_hooks),
+        VD("small_"+datasets.wjazzd.prefix, wjazzd_small_validation_dataset, 3000, small_hooks),
+        VD(datasets.medleydb.prefix, medleydb_validation_dataset, 20000, valid_hooks),
+        VD(datasets.mdb_melody_synth.prefix, mdb_melody_synth_validation_dataset, 30000, valid_hooks),
+        VD(datasets.wjazzd.prefix, wjazzd_validation_dataset, 30000, valid_hooks),
     ]
 
     return train_dataset, validation_datasets
@@ -80,8 +83,8 @@ def mdb_datasets(args, preload_fn, dataset_transform, dataset_transform_train):
     train_dataset = datasets.AADataset(medleydb_train, args, dataset_transform_train, shuffle=True)
 
     validation_datasets = [
-        VD(datasets.medleydb.prefix+"_small", medleydb_small_validation_dataset, 3000, True),
-        VD(datasets.medleydb.prefix, medleydb_validation_dataset, 20000, False),
+        VD("small_"+datasets.medleydb.prefix, medleydb_small_validation_dataset, 3000, [MetricsHook(True), VisualOutputHook(True, True, False)]),
+        VD(datasets.medleydb.prefix, medleydb_validation_dataset, 20000, [MetricsHook(False), VisualOutputHook(False, False, True)]),
     ]
 
     return train_dataset, validation_datasets
