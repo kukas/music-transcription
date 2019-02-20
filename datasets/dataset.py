@@ -111,13 +111,12 @@ class Audio:
         audio = self.samples[cut_start:cut_end]
 
         if cut_start_diff:
-            zeros = np.zeros(cut_start_diff, dtype=np.float32)
+            zeros = np.zeros(cut_start_diff, dtype=np.int16)
             audio = np.concatenate([zeros, audio])
 
         if cut_end_diff:
-            zeros = np.zeros(cut_end_diff, dtype=np.float32)
+            zeros = np.zeros(cut_end_diff, dtype=np.int16)
             audio = np.concatenate([audio, zeros])
-        
         return audio
 
 
@@ -191,7 +190,7 @@ class Annotation:
     def __init__(self, times, freqs=None, notes=None, voicing=None):
         assert not (freqs is None and notes is None)
 
-        self.times = np.array(times)
+        self.times = np.array(times, dtype=np.float32)
         self.freqs = freqs
         self._freqs_mf0 = None
         self.notes = notes
@@ -206,6 +205,10 @@ class Annotation:
 
         if voicing is None:
             self.voicing = self.freqs[:,0] > 0
+
+
+        self.freqs = self.freqs.astype(np.float32)
+        self.notes = self.notes.astype(np.float32)
     
     @staticmethod
     def from_time_series(annot_path, dataset_prefix):
@@ -289,41 +292,50 @@ class AADataset:
 
         self.samplerate = _annotated_audios[0].audio.samplerate
 
+        index_dataset = tf.data.Dataset.from_generator(self._indextuple_generator, (tf.int32, tf.int32), ([], []))
+
+        self.dataset = index_dataset if dataset_transform is None else index_dataset.apply(lambda tf_dataset: dataset_transform(tf_dataset, self))
+
+        print("dataset duration:", self.total_duration)
+        print("dataset examples:", self.total_examples)
+        self.max_polyphony = np.max([aa.annotation.max_polyphony for aa in self._annotated_audios])
+        print("max. polyphony:", self.max_polyphony)
+
+    def prepare_example(self, aa_index_op, annotation_index_op):
         output_types, output_shapes = zip(*[
             (tf.int16,   tf.TensorShape([self.window_size])),
             (tf.float32, tf.TensorShape([self.annotations_per_window, None])),
             (tf.float32, tf.TensorShape([self.annotations_per_window])),
             (tf.string,  None),
         ])
-
-        dataset = tf.data.Dataset.from_generator(self._generator, output_types, output_shapes)
-
-        self.dataset = dataset if dataset_transform is None else dataset.apply(dataset_transform)
+        outputs = tf.py_func(self._create_example, [aa_index_op, annotation_index_op], output_types)
+        for output, shape in zip(outputs, output_shapes):
+            output.set_shape(shape)
+        return outputs
     
-        print("dataset duration:", self.total_duration)
-        self.max_polyphony = np.max([aa.annotation.max_polyphony for aa in self._annotated_audios])
-        print("max. polyphony:", self.max_polyphony)
-
     @property
     def total_duration(self):
-        total_duration = 0
-        for aa in self._annotated_audios:
-            total_duration += aa.annotation.times[-1]
-        return total_duration
+        return sum([aa.annotation.times[-1] for aa in self._annotated_audios])
+    
+    @property
+    def total_examples(self):
+        return sum([len(aa.annotation.times)//self.annotations_per_window for aa in self._annotated_audios])
 
-    def _generator(self):
-        for aa in self._annotated_audios:
+    def _indextuple_generator(self):
+        for aa_index, aa in enumerate(self._annotated_audios):
             if self.window_size > aa.audio.samples_count:
                 raise RuntimeError("Window size is bigger than the audio.")
 
             for annotation_index in range(0, len(aa.annotation.times), self.annotations_per_window):
-                yield self._create_example(aa, annotation_index)
+                yield (aa_index, annotation_index)
 
     def all_samples(self):
         samples = [aa.audio.samples for aa in self._annotated_audios]
         return np.concatenate(samples)
 
-    def _create_example(self, aa, annotation_start):
+    def _create_example(self, aa_index, annotation_start):
+        aa = self._annotated_audios[aa_index]
+
         annotation_end = min(len(aa.annotation.times), annotation_start + self.annotations_per_window)
         
         annotations = aa.annotation.notes[annotation_start:annotation_end]

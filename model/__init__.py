@@ -374,6 +374,7 @@ class NetworkMelody(Network):
             aa = dataset.get_annotated_audio_by_uid(uid)
 
             ref_time = aa.annotation.times
+            ref_freq = np.squeeze(aa.annotation.freqs, 1)
 
             metrics = mir_eval.melody.evaluate(ref_time, ref_freq, est_time, est_freq)
 
