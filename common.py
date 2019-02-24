@@ -5,18 +5,16 @@ import datetime
 from model import VD, VisualOutputHook, MetricsHook, MetricsHook_mf0, VisualOutputHook_mf0, SaveBestModelHook
 
 def name(args, prefix=""):
-    if "logdir" not in args:
-        name = "{}-{}-bs{}-apw{}-fw{}-ctx{}-nr{}-sr{}".format(
-            prefix,
-            datetime.datetime.now().strftime("%m-%d_%H%M%S"),
-            args["batch_size"],
-            args["annotations_per_window"],
-            args["frame_width"],
-            args["context_width"],
-            args["note_range"],
-            args["samplerate"],
-        )
-        args["logdir"] = "models/" + name
+    if args.logdir is None:
+        filtered = ["threads", "logdir"]
+        prefix = "crepe"
+        name = "{}-{}".format(datetime.datetime.now().strftime("%m%d_%H%M%S"), prefix)
+        for k, v in vars(args).items():
+            if k not in filtered:
+                short_k = "".join([w[0] for w in k.split("_")])
+                name += "-{}{}".format(short_k, v)
+
+        args.logdir = "models/" + name
 
         print()
         print(name)
