@@ -37,59 +37,58 @@ def conv(inputs, filters, size, strides, padding, activation=None, dilation_rate
     return tf.layers.conv1d(inputs, filters, size, strides, padding, activation=activation, dilation_rate=dilation_rate, name=name)
 
 
-def all_datasets(args, preload_fn, dataset_transform, dataset_transform_train):
-    wjazzd_train, wjazzd_validation, wjazzd_small_validation = datasets.wjazzd.prepare(preload_fn)
-    wjazzd_validation_dataset = datasets.AADataset(wjazzd_validation, args, dataset_transform)
-    wjazzd_small_validation_dataset = datasets.AADataset(wjazzd_small_validation, args, dataset_transform)
-
-    medleydb_train, medleydb_validation, medleydb_small_validation = datasets.medleydb.prepare(preload_fn)
-    medleydb_validation_dataset = datasets.AADataset(medleydb_validation, args, dataset_transform)
-    medleydb_small_validation_dataset = datasets.AADataset(medleydb_small_validation, args, dataset_transform)
-
-    mdb_melody_synth_train, mdb_melody_synth_validation, _ = datasets.mdb_melody_synth.prepare(preload_fn)
-    mdb_melody_synth_validation_dataset = datasets.AADataset(mdb_melody_synth_validation, args, dataset_transform)
-
-    mdb_stem_synth_train, _, mdb_stem_synth_small_validation = datasets.mdb_stem_synth.prepare(preload_fn)
-    mdb_stem_synth_small_validation_dataset = datasets.AADataset(mdb_stem_synth_small_validation, args, dataset_transform)
-
-    _, _, mdb_mf0_synth_small_validation = datasets.mdb_mf0_synth.prepare(preload_fn)
-    mdb_mf0_synth_small_validation_dataset = datasets.AADataset(mdb_mf0_synth_small_validation, args, dataset_transform)
-
-    train_dataset = datasets.AADataset(medleydb_train+wjazzd_train+mdb_stem_synth_train+mdb_melody_synth_train, args, dataset_transform_train, shuffle=True)
-
+def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transform_train):
     small_hooks_mf0 = [MetricsHook_mf0(), VisualOutputHook_mf0(True, True, True)]
     small_hooks = [MetricsHook(), VisualOutputHook(True, True, False)]
-    valid_hooks = [MetricsHook(), VisualOutputHook(False, False, True)]
-    validation_datasets=[
-        VD("small_"+datasets.mdb_mf0_synth.prefix, mdb_mf0_synth_small_validation_dataset, 3000, small_hooks_mf0),
-        VD("small_"+datasets.mdb_stem_synth.prefix, mdb_stem_synth_small_validation_dataset, 3000, small_hooks),
-        VD("small_"+datasets.medleydb.prefix, medleydb_small_validation_dataset, 3000, small_hooks),
-        VD("small_"+datasets.wjazzd.prefix, wjazzd_small_validation_dataset, 3000, small_hooks),
-        VD(datasets.medleydb.prefix, medleydb_validation_dataset, 20000, valid_hooks),
-        VD(datasets.mdb_melody_synth.prefix, mdb_melody_synth_validation_dataset, 30000, valid_hooks),
-        VD(datasets.wjazzd.prefix, wjazzd_validation_dataset, 30000, valid_hooks),
-    ]
+    valid_hooks = [MetricsHook(), VisualOutputHook(False, False, True), SaveBestModelHook()]
 
-    return train_dataset, validation_datasets
+    validation_datasets = []
+    train_data = []
+    if datasets.wjazzd.prefix in which:
+        wjazzd_train, wjazzd_validation, wjazzd_small_validation = datasets.wjazzd.prepare(preload_fn)
+        wjazzd_validation_dataset = datasets.AADataset(wjazzd_validation, args, dataset_transform)
+        wjazzd_small_validation_dataset = datasets.AADataset(wjazzd_small_validation, args, dataset_transform)
+        validation_datasets += [
+            VD("small_"+datasets.wjazzd.prefix, wjazzd_small_validation_dataset, 3000, small_hooks),
+            VD(datasets.wjazzd.prefix, wjazzd_validation_dataset, 30000, valid_hooks),
+        ]
+        train_data += wjazzd_train
 
+    if datasets.medleydb.prefix in which:
+        medleydb_train, medleydb_validation, medleydb_small_validation = datasets.medleydb.prepare(preload_fn)
+        medleydb_validation_dataset = datasets.AADataset(medleydb_validation, args, dataset_transform)
+        medleydb_small_validation_dataset = datasets.AADataset(medleydb_small_validation, args, dataset_transform)
+        validation_datasets += [
+            VD("small_"+datasets.medleydb.prefix, medleydb_small_validation_dataset, 3000, small_hooks),
+            VD(datasets.medleydb.prefix, medleydb_validation_dataset, 20000, valid_hooks),
+        ]
+        train_data += medleydb_train
 
-def mdb_datasets(args, preload_fn, dataset_transform, dataset_transform_train):
-    medleydb_train, medleydb_validation, medleydb_small_validation = datasets.medleydb.prepare(preload_fn)
-    medleydb_validation_dataset = datasets.AADataset(medleydb_validation, args, dataset_transform)
-    medleydb_small_validation_dataset = datasets.AADataset(medleydb_small_validation, args, dataset_transform)
+    if datasets.mdb_melody_synth.prefix in which:
+        mdb_melody_synth_train, mdb_melody_synth_validation, _ = datasets.mdb_melody_synth.prepare(preload_fn)
+        mdb_melody_synth_validation_dataset = datasets.AADataset(mdb_melody_synth_validation, args, dataset_transform)
+        validation_datasets += [
+            VD(datasets.mdb_melody_synth.prefix, mdb_melody_synth_validation_dataset, 30000, valid_hooks),
+        ]
+        train_data += mdb_melody_synth_train
 
-    train_dataset = datasets.AADataset(medleydb_train, args, dataset_transform_train, shuffle=True)
+    if datasets.mdb_stem_synth.prefix in which:
+        mdb_stem_synth_train, mdb_stem_synth_validation, mdb_stem_synth_small_validation = datasets.mdb_stem_synth.prepare(preload_fn)
+        mdb_stem_synth_small_validation_dataset = datasets.AADataset(mdb_stem_synth_small_validation, args, dataset_transform)
+        mdb_stem_synth_validation_dataset = datasets.AADataset(mdb_stem_synth_validation, args, dataset_transform)
+        validation_datasets += [
+            VD("small_"+datasets.mdb_stem_synth.prefix, mdb_stem_synth_small_validation_dataset, 3000, small_hooks),
+            VD(datasets.mdb_stem_synth.prefix, mdb_stem_synth_validation_dataset, 3000, valid_hooks),
+        ]
+        train_data += mdb_stem_synth_train
 
-    validation_datasets = [
-        VD("small_"+datasets.medleydb.prefix, medleydb_small_validation_dataset, 3000, [
-            MetricsHook(),
-            VisualOutputHook(True, True, False)
-            ]),
-        VD(datasets.medleydb.prefix, medleydb_validation_dataset, 20000, [
-            MetricsHook(),
-            VisualOutputHook(False, False, True),
-            SaveBestModelHook()
-            ]),
-    ]
+    if datasets.mdb_mf0_synth.prefix in which:
+        _, _, mdb_mf0_synth_small_validation = datasets.mdb_mf0_synth.prepare(preload_fn)
+        mdb_mf0_synth_small_validation_dataset = datasets.AADataset(mdb_mf0_synth_small_validation, args, dataset_transform)
+        validation_datasets += [
+            VD("small_"+datasets.mdb_mf0_synth.prefix, mdb_mf0_synth_small_validation_dataset, 3000, small_hooks_mf0),
+        ]
+
+    train_dataset = datasets.AADataset(train_data, args, dataset_transform_train, shuffle=True)
 
     return train_dataset, validation_datasets
