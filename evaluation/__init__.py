@@ -97,11 +97,12 @@ def summary(method, path, est_suffix=".csv"):
         audio_names = map(lambda x: os.path.splitext(os.path.basename(x.audio_path))[0], dataset_iterator)
 
         ests_dir = "{}-{}-melody-outputs".format(prefix, method)
-        # List of the paths to estimation annotations
-        est_paths = [join(path, ests_dir, name+est_suffix) for name in audio_names]
+        if os.path.exists(join(path, ests_dir)):
+            # List of the paths to estimation annotations
+            est_paths = [join(path, ests_dir, name+est_suffix) for name in audio_names]
 
-        result = evaluate_dataset_melody(annot_paths, est_paths)
-        results[name] = result
+            result = evaluate_dataset_melody(annot_paths, est_paths)
+            results[name] = result
     summarized = {k: pandas.DataFrame(v).mean() for k, v in results.items()}
     return pandas.DataFrame(summarized)
 
