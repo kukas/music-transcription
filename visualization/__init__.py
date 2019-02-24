@@ -11,7 +11,7 @@ import scipy
 import tensorflow as tf
 
 from IPython.display import Audio
-
+import itertools
 
 def audioplayer(path):
     y, fs = librosa.load(path, sr=None)
@@ -46,13 +46,16 @@ def draw_notes(ref, est, style=".", title=None):
         return abs(n_est - n_ref) < 0.5
 
     indices_correct_negative, correct_negative = flatten([[-n_est for n_est in fest if n_est < 0 and any([abs_correct(n_ref, -n_est) for n_ref in fref])] for fref, fest in zip(ref, est)])
-    indices_incorrect_negative, incorrect_negative = flatten([[-n_est for n_est in fest if n_est < 0 and (all([not abs_correct(n_ref, -n_est) for n_ref in fref]) or len(fref) == 0)] for fref, fest in zip(ref, est)])
+    indices_incorrect_negative, incorrect_negative = flatten([[-n_est for n_est in fest if n_est < 0 and (all([not abs_correct(n_ref, -n_est)
+                                                                                                               for n_ref in fref]) or len(fref) == 0)] for fref, fest in zip(ref, est)])
 
     indices_correct, correct = flatten([[n_est for n_est in fest if n_est > 0 and any([abs_correct(n_ref, n_est) for n_ref in fref])] for fref, fest in zip(ref, est)])
     indices_unvoiced_incorrect, unvoiced_incorrect = flatten([[n_est for n_est in fest if n_est > 0 and len(fref) == 0] for fref, fest in zip(ref, est)])
-    indices_incorrect_chroma, incorrect_chroma = flatten([[n_est for n_est in fest if n_est > 0 and all([not abs_correct(n_est, n_ref) and octave_correct(n_ref, n_est) for n_ref in fref]) and len(fref) > 0] for fref, fest in zip(ref, est)])
-    indices_incorrect, incorrect = flatten([[n_est for n_est in fest if n_est > 0 and all([not abs_correct(n_ref, n_est) and not octave_correct(n_ref, n_est) for n_ref in fref]) and len(fref) > 0] for fref, fest in zip(ref, est)])
-    indices_ref_rest, ref_rest = flatten([[n_ref for n_ref in fref if all([not abs_correct(n_ref, n_est) for n_est in fest])] for fref, fest in zip(ref, est)])
+    indices_incorrect_chroma, incorrect_chroma = flatten([[n_est for n_est in fest if n_est > 0 and all(
+        [not abs_correct(n_est, n_ref) and octave_correct(n_ref, n_est) for n_ref in fref]) and len(fref) > 0] for fref, fest in zip(ref, est)])
+    indices_incorrect, incorrect = flatten([[n_est for n_est in fest if n_est > 0 and all([not abs_correct(n_ref, n_est) and not octave_correct(n_ref, n_est)
+                                                                                           for n_ref in fref]) and len(fref) > 0] for fref, fest in zip(ref, est)])
+    indices_ref_rest, ref_rest = flatten(ref)
 
     ms = 2
     ax.plot(indices_ref_rest, ref_rest, style, color="#222222", label="REF", markersize=ms)
@@ -70,11 +73,10 @@ def draw_notes(ref, est, style=".", title=None):
 
     bottom, top = ax.get_ylim()
     ax.set_ylim(max(0, bottom), min(128, top))
-    
+
     plt.tight_layout()
 
     return fig
-
 
 
 def draw_confusion(ref, est):
@@ -84,21 +86,45 @@ def draw_confusion(ref, est):
     for fref, fest in zip(ref, est):
         n_ref = int(np.round(fref[0])) if len(fref) > 0 else 0
         n_est = int(np.round(fest[0])) if len(fest) > 0 else 0
+        if n_ref == 0 or n_est == 0:
+            continue
         cm[n_est, n_ref] += 1
+
+    # cm /= len(ref)
+
+    xticks = np.arange(128)
+    yticks = np.arange(128)
+
+    indices_0 = np.nonzero(np.sum(cm, 0))[0]
+    indices_1 = np.nonzero(np.sum(cm, 1))[0]
+
+    if len(indices_0) >= 2:
+        first_nonzero = indices_0[0]
+        last_nonzero = indices_0[-1] + 1
+        cm = cm[:,first_nonzero:last_nonzero]
+        xticks = xticks[first_nonzero:last_nonzero]
+
+    if len(indices_1) >= 2:
+        first_nonzero = indices_1[0]
+        last_nonzero = indices_1[-1] + 1
+        cm = cm[first_nonzero:last_nonzero, :]
+        yticks = yticks[first_nonzero:last_nonzero]
 
     ax.imshow(cm)
     # ax.title(title)
     # ax.colorbar()
-    # tick_marks = np.arange(len(classes))
-    # ax.xticks(tick_marks, classes, rotation=45)
-    # ax.yticks(tick_marks, classes)
+    
+    plt.xticks(np.arange(len(xticks)), xticks, rotation=45)
+    plt.yticks(np.arange(len(yticks)), yticks)
 
-    # fmt = '.2f' if normalize else 'd'
     # thresh = cm.max() / 2.
     # for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
-    #     ax.text(j, i, format(cm[i, j], fmt),
-    #              horizontalalignment="center",
-    #              color="white" if cm[i, j] > thresh else "black")
+    #     if cm[i, j] != 0:
+    #         ax.text(j, i, format(cm[i, j], ".2f")[1:],
+    #                 horizontalalignment="center",
+    #                 color="black" if cm[i, j] > thresh else "white")
+
+    # plt.grid(which="minor", color="w", linestyle='-', linewidth=3)
 
     plt.ylabel('True label')
     plt.xlabel('Predicted label')
@@ -109,15 +135,15 @@ def draw_confusion(ref, est):
 
 def draw_probs(probs, ref, title=None):
     fig, ax = plt.subplots(figsize=(15, 6))
-    ax.set_ylim(0, 128)
+    # ax.set_ylim(0, 128)
     if title:
         ax.set_title(title)
     ax.set(xlabel='frame', ylabel='midi note')
 
-    ax.imshow(probs, aspect="auto", origin='lower')
+    ax.imshow(probs, aspect="auto", origin='lower', extent=[0, probs.shape[1], 0, 128])
 
     indices_ref, ref = flatten(ref)
-    ax.plot(indices_ref, ref, ",", color="#ffffff", alpha=0.3)
+    ax.plot(indices_ref, ref, ",", color="#ff0000", alpha=0.5)
 
     plt.tight_layout()
 
