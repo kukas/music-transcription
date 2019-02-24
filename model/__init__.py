@@ -35,18 +35,20 @@ class Network:
 
     def construct(self, args, create_model, output_types, output_shapes, create_summaries=None, dataset_preload_fn=None, dataset_transform=None):
         self.args = args
-        self.logdir = args["logdir"]
-        self.note_range = args["note_range"]
+        self.logdir = args.logdir
+        self.note_range = args.note_range
 
-        self.samplerate = args["samplerate"]
-        self.annotations_per_window = args["annotations_per_window"]
-        self.frame_width = args["frame_width"]
-        self.context_width = args["context_width"]
+        self.samplerate = args.samplerate
+        self.bins_per_semitone = args.bins_per_semitone
+        self.annotations_per_window = args.annotations_per_window
+        self.bin_count = self.note_range*self.bins_per_semitone
+        self.frame_width = args.frame_width
+        self.context_width = args.context_width
         self.window_size = self.annotations_per_window*self.frame_width + 2*self.context_width
 
         self.spectrogram_shape = None
         if "spectrogram_shape" in args:
-            self.spectrogram_shape = args["spectrogram_shape"]
+            self.spectrogram_shape = args.spectrogram_shape
 
         self.dataset_preload_fn = dataset_preload_fn
         self.dataset_transform = dataset_transform
@@ -57,9 +59,6 @@ class Network:
             self.iterator = tf.data.Iterator.from_string_handle(self.handle, output_types, output_shapes)
 
             self.window_int16, self.annotations, self.times, self.audio_uid = self.iterator.get_next()
-
-            # round the annotations
-            self.annotations = tf.cast(tf.round(self.annotations), tf.int32)
 
             self.window = tf.cast(self.window_int16, tf.float32)/32768.0
 
@@ -88,7 +87,7 @@ class Network:
 
             print("Total parameter count:", np.sum([np.prod(v.get_shape().as_list()) for v in tf.trainable_variables()]))
 
-            assert self.note_probabilities is not None and self.note_probabilities.shape.as_list() == [None, self.annotations_per_window, self.note_range]
+            assert self.note_probabilities is not None and self.note_probabilities.shape.as_list() == [None, self.annotations_per_window, self.bin_count]
             assert self.est_notes is not None
             assert self.loss is not None
             assert self.training is not None
@@ -146,10 +145,15 @@ class Network:
 
                 try:
                     if b % 1000 == 0:
-                        accuracy, loss, _, summary, step = self.session.run([self.accuracy, self.loss, self.training, self.summaries, self.global_step], feed_dict)
+                        run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+                        run_metadata = tf.RunMetadata()
+
+                        accuracy, loss, _, summary, step = self.session.run(
+                            [self.accuracy, self.loss, self.training, self.summaries, self.global_step],
+                            feed_dict, options=run_options, run_metadata=run_metadata)
+                        self.summary_writer.add_run_metadata(run_metadata, 'run_metadata_step{}'.format(step), global_step=step)
                     else:
                         self.session.run(self.training, feed_dict)
-
                 except tf.errors.OutOfRangeError:
                     break
 
@@ -248,7 +252,7 @@ class Network:
         # out.write(plaintext)
 
     def save_hyperparams(self, args):
-        text = tf.convert_to_tensor([[str(k), str(v)] for k, v in args.items()])
+        text = tf.convert_to_tensor([[str(k), str(v)] for k, v in vars(args).items()])
         self.summary_writer.add_summary(self.session.run(tf.summary.text("hyperparameters", text)))
 
     def save(self, name="model"):
@@ -264,7 +268,8 @@ class NetworkMelody(Network):
     def _summaries(self, args):
         # batch metrics
         with tf.name_scope("metrics"):
-            correct = tf.equal(self.annotations[:, 0], self.est_notes)
+            ref_notes = tf.cast(self.annotations[:, 0], tf.float64)
+            correct = tf.less(tf.abs(ref_notes-self.est_notes), 0.5)
             voiced = tf.greater(self.annotations[:, 0], 0)
             voiced_est = tf.greater(self.est_notes, 0)
             correct_voiced_sum = tf.count_nonzero(tf.logical_and(correct, voiced))

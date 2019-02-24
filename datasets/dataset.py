@@ -275,10 +275,10 @@ class AADataset:
         self._annotated_audios = _annotated_audios
 
         # self.frame_width = int(np.round(aa.annotation.get_frame_width()*self.samplerate))
-        self.frame_width = args["frame_width"]
+        self.frame_width = args.frame_width
 
-        self.context_width = args["context_width"]
-        self.annotations_per_window = args["annotations_per_window"]
+        self.context_width = args.context_width
+        self.annotations_per_window = args.annotations_per_window
         # todo: přejmenovat na window_width?
         self.inner_window_size = self.annotations_per_window*self.frame_width
         self.window_size = self.inner_window_size + 2*self.context_width
