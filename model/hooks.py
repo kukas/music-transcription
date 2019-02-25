@@ -74,6 +74,9 @@ class VisualOutputHook(EvaluationHook):
             fig = vis.draw_notes(reference, estimation, title=title)
             img_summary = vis.fig2summary(fig)
             ctx.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+"notes", image=img_summary)]), global_step)
+            plt.cla()
+            plt.clf()
+            plt.close('all')
 
         if self.draw_probs:
             # TODO!! opravit array additional na dictionary
@@ -82,11 +85,17 @@ class VisualOutputHook(EvaluationHook):
             fig = vis.draw_probs(note_probs, reference)
             img_summary = vis.fig2summary(fig)
             ctx.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+"probs", image=img_summary)]), global_step)
+            plt.cla()
+            plt.clf()
+            plt.close('all')
 
         if self.draw_confusion:
             fig = vis.draw_confusion(reference, estimation)
             img_summary = vis.fig2summary(fig)
             ctx.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+"confusion", image=img_summary)]), global_step)
+            plt.cla()
+            plt.clf()
+            plt.close('all')
 
 
 class MetricsHook(EvaluationHook):
