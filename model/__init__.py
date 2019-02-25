@@ -145,13 +145,17 @@ class Network:
 
                 try:
                     if b % 1000 == 0:
-                        run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
-                        run_metadata = tf.RunMetadata()
+                        fetches = [self.accuracy, self.loss, self.training, self.summaries, self.global_step]
+                        if self.args.full_trace:
+                            run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+                            run_metadata = tf.RunMetadata()
 
-                        accuracy, loss, _, summary, step = self.session.run(
-                            [self.accuracy, self.loss, self.training, self.summaries, self.global_step],
-                            feed_dict, options=run_options, run_metadata=run_metadata)
-                        self.summary_writer.add_run_metadata(run_metadata, 'run_metadata_step{}'.format(step), global_step=step)
+                            values = self.session.run(fetches, feed_dict, options=run_options, run_metadata=run_metadata)
+                            self.summary_writer.add_run_metadata(run_metadata, 'run_metadata_step{}'.format(step), global_step=step)
+                        else:
+                            values = self.session.run(fetches, feed_dict)
+
+                        accuracy, loss, _, summary, step = values
                     else:
                         self.session.run(self.training, feed_dict)
                 except tf.errors.OutOfRangeError:
