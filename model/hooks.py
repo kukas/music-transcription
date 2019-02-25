@@ -7,6 +7,7 @@ import numpy as np
 import visualization as vis
 import matplotlib.pyplot as plt
 import matplotlib
+import os
 
 mir_eval.multipitch.MIN_FREQ = 1
 
@@ -166,12 +167,20 @@ class VisualOutputHook_mf0(EvaluationHook_mf0, VisualOutputHook):
 
 
 class SaveBestModelHook(EvaluationHook):
-    def __init__(self):
-        self.best_oa = 0
+    def __init__(self, logdir):
+        self.best_value = -1
+        self.logdir = logdir
+        self.watch_metric = "Overall Accuracy"
 
     def after_run(self, ctx, vd, additional):
-        oa = ctx.metrics['Overall Accuracy']
-        if oa > self.best_oa:
-            self.best_oa = oa
-            print("Saving best model, OA = {:.2f}".format(oa))
-            ctx.save("model-best-{}".format(vd.name))
+        self.model_name = "model-best-{}".format(vd.name)
+        best_metrics_csv = os.path.join(self.logdir, self.model_name+".csv")
+        if self.best_value == -1 and os.path.isfile(best_metrics_csv):
+            self.best_value = pandas.read_csv(best_metrics_csv, header=None, index_col=0, squeeze=True)[self.watch_metric]
+
+        value = ctx.metrics[self.watch_metric]
+        if value > self.best_value:
+            self.best_value = value
+            print("Saving best model, best value = {:.2f}".format(value))
+            ctx.save(self.model_name)
+            ctx.metrics.to_csv(best_metrics_csv)
