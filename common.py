@@ -78,7 +78,7 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
         mdb_stem_synth_validation_dataset = datasets.AADataset(mdb_stem_synth_validation, args, dataset_transform)
         validation_datasets += [
             VD("small_"+datasets.mdb_stem_synth.prefix, mdb_stem_synth_small_validation_dataset, 3000, small_hooks),
-            VD(datasets.mdb_stem_synth.prefix, mdb_stem_synth_validation_dataset, 3000, valid_hooks),
+            VD(datasets.mdb_stem_synth.prefix, mdb_stem_synth_validation_dataset, 30000, valid_hooks),
         ]
         train_data += mdb_stem_synth_train
 
