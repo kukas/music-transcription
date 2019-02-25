@@ -83,32 +83,23 @@ def create_model(self, args):
     self.est_notes = tf.argmax(self.note_logits, axis=2) / self.bins_per_semitone
 
     if args.annotation_smoothing:
-        note_bins = np.arange(0, 128, 1/self.bins_per_semitone, dtype=np.float32)
-
-        def create_smooth_probabilities(note_ref):
-            return tf.map_fn(lambda note_bin: 0.0, note_bins)
-            # return tf.map_fn(lambda note_bin: tf.exp(-(note_ref-note_bin)**2/2/0.2/0.2), note_bins)
-        ref_probabilities = tf.map_fn(create_smooth_probabilities, annotations[:, 0])
-        # ref_probabilities = tf.expand_dims(ref_probabilities, 1)
+        note_bins = tf.range(0, 128, 1/self.bins_per_semitone, dtype=tf.float32)
+        note_bins = tf.reshape(tf.tile(note_bins, [args.batch_size]), [args.batch_size, self.bin_count])
+        note_ref = tf.expand_dims(annotations[:, 0], 1)
+        note_ref = tf.tile(note_ref, [1, self.bin_count])
+        ref_probabilities = tf.exp(-(note_ref-note_bins)**2/2/0.2/0.2)
         
-        # ref_probabilities = tf.zeros((args.batch_size, self.bin_count))
-        # for b in range(args.batch_size):
-        #     for bin in range(self.bin_count):
-        #         note_bin = note_bins[bin]
-        #         note_ref = annotations[b, 0]
-        #         ref_probabilities[b, bin] = tf.exp(-(note_ref-note_bin)**2/2/0.2/0.2)
-
-        
-        weights = tf.map_fn(lambda b: tf.map_fn(lambda v: tf.fill([self.bin_count], v), b), voicing_ref)
+        # weights = tf.map_fn(lambda b: tf.map_fn(lambda v: tf.fill([self.bin_count], v), b), voicing_ref)
+        voicing_ref = tf.tile(tf.expand_dims(voicing_ref, -1), [1, 1, self.bin_count])
         # print("====", weights.shape, voicing_ref.shape)
         self.loss = tf.losses.sigmoid_cross_entropy(ref_probabilities, tf.reshape(self.note_logits, [-1, self.bin_count]))
         # self.loss = tf.losses.sigmoid_cross_entropy(ref_probabilities, self.note_logits, weights=weights)
     else:
         ref_bins = tf.cast(tf.round(self.annotations[:, 0] * self.bins_per_semitone), tf.int32)
-        ref_probs = tf.one_hot(ref_bins, self.bin_count)
-        weights = tf.map_fn(lambda b: tf.map_fn(lambda v: tf.fill([self.bin_count], v), b), voicing_ref)
-        self.loss = tf.losses.sigmoid_cross_entropy(ref_probs, self.note_logits, weights=weights)
-        # self.loss = tf.losses.sparse_softmax_cross_entropy(ref_bins, self.note_logits, weights=voicing_ref)
+        # ref_probs = tf.one_hot(ref_bins, self.bin_count)
+        # weights = tf.map_fn(lambda b: tf.map_fn(lambda v: tf.fill([self.bin_count], v), b), voicing_ref)
+        # self.loss = tf.losses.sigmoid_cross_entropy(ref_probs, self.note_logits, weights=weights)
+        self.loss = tf.losses.sparse_softmax_cross_entropy(ref_bins, self.note_logits, weights=voicing_ref)
 
     reg_variables = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
     self.loss += args.l2_loss_weight * tf.reduce_sum(reg_variables)
