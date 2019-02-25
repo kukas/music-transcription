@@ -13,6 +13,8 @@ from collections import namedtuple
 from math import floor, ceil
 import numpy as np
 
+from mem_top import mem_top
+
 import tensorflow as tf
 
 import mir_eval
@@ -116,7 +118,7 @@ class Network:
 
             if os.path.exists(os.path.join(self.logdir, "model.ckpt.index")):
                 self.restore()
-
+            
     def _summaries(self, args):
         raise NotImplementedError()
 
@@ -131,6 +133,8 @@ class Network:
                 it = vd.dataset.dataset.make_initializable_iterator()
                 validation_iterators.append(it)
                 validation_handles.append(self.session.run(it.string_handle()))
+        
+        self.session.graph.finalize()
 
         b = 0
         timer = time.time()
@@ -147,6 +151,7 @@ class Network:
                     if b % 1000 == 0:
                         fetches = [self.accuracy, self.loss, self.training, self.summaries, self.global_step]
                         if self.args.full_trace:
+                            print("Running with trace_level=FULL_TRACE")
                             run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
                             run_metadata = tf.RunMetadata()
 
@@ -296,6 +301,9 @@ class NetworkMelody(Network):
             self.summaries = tf.summary.merge_all()
 
     def _evaluate_handle(self, vd, handle):
+        if self.args.debug_memory_leaks:
+            print(mem_top())
+
         additional_fetches = []
 
         for hook in vd.hooks:
@@ -313,3 +321,6 @@ class NetworkMelody(Network):
 
         for hook in vd.hooks:
             hook.after_run(self, vd, additional)
+
+        if self.args.debug_memory_leaks:
+            print(mem_top())

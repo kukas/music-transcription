@@ -135,6 +135,7 @@ parser.add_argument("--note_range", default=128, type=int, help="Note range.")
 parser.add_argument("--samplerate", default=16000, type=int, help="Audio samplerate used in the model, resampling is done automatically.")
 parser.add_argument("--logdir", default=None, type=str, help="Path to model directory.")
 parser.add_argument("--full_trace", default=False, type=bool, help="Profile Tensorflow session.")
+parser.add_argument("--debug_memory_leaks", default=False, type=bool, help="Debug memory leaks.")
 # Model specific arguments
 parser.add_argument("--input_normalization", default=True, type=bool, help="Normalize each input example")
 parser.add_argument("--learning_rate", default=0.0002, type=float, help="Learning rate")

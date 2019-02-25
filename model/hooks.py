@@ -54,15 +54,16 @@ class VisualOutputHook(EvaluationHook):
     def before_run(self, ctx, vd):
         self.reference = []
         self.estimation = []
-        return [ctx.note_probabilities]
+        additional = []
+        if self.draw_probs:
+            additional.append(ctx.note_probabilities)
+        return additional
 
     def every_aa(self, ctx, vd, aa, est_time, est_freq):
         self.reference += aa.annotation.notes_mf0
         self.estimation.append(datasets.common.hz_to_midi_safe(est_freq))
 
     def after_run(self, ctx, vd, additional):
-        self.note_probs = np.concatenate(np.concatenate([x[1] for x in additional]), axis=0).T
-
         prefix = "valid_{}/".format(vd.name)
         title = self._title(ctx)
         reference = self.reference
@@ -73,19 +74,19 @@ class VisualOutputHook(EvaluationHook):
             fig = vis.draw_notes(reference, estimation, title=title)
             img_summary = vis.fig2summary(fig)
             ctx.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+"notes", image=img_summary)]), global_step)
-            plt.close()
 
         if self.draw_probs:
-            fig = vis.draw_probs(self.note_probs, reference)
+            # TODO!! opravit array additional na dictionary
+            note_probs = np.concatenate(np.concatenate([x[1] for x in additional]), axis=0).T
+
+            fig = vis.draw_probs(note_probs, reference)
             img_summary = vis.fig2summary(fig)
             ctx.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+"probs", image=img_summary)]), global_step)
-            plt.close()
 
         if self.draw_confusion:
             fig = vis.draw_confusion(reference, estimation)
             img_summary = vis.fig2summary(fig)
             ctx.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+"confusion", image=img_summary)]), global_step)
-            plt.close()
 
 
 class MetricsHook(EvaluationHook):

@@ -76,6 +76,10 @@ def draw_notes(ref, est, style=".", title=None):
 
     plt.tight_layout()
 
+    plt.cla()
+    plt.clf()
+    plt.close('all')
+
     return fig
 
 
@@ -130,6 +134,10 @@ def draw_confusion(ref, est):
     plt.xlabel('Predicted label')
     plt.tight_layout()
 
+    plt.cla()
+    plt.clf()
+    plt.close('all')
+
     return fig
 
 
@@ -146,6 +154,10 @@ def draw_probs(probs, ref, title=None):
     ax.plot(indices_ref, ref, ",", color="#ff0000", alpha=0.5)
 
     plt.tight_layout()
+
+    plt.cla()
+    plt.clf()
+    plt.close('all')
 
     return fig
 
