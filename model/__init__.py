@@ -136,7 +136,7 @@ class Network:
         
         self.session.graph.finalize()
 
-        b = 0
+        b = tf.train.global_step(self.session, self.global_step)
         timer = time.time()
         for i in range(epochs):
             self.session.run(train_iterator.initializer)
