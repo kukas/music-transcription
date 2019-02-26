@@ -12,7 +12,7 @@ Track = namedtuple("Track", ("audio_path", "annot_path", "uid"))
 
 
 def melody_dataset_generator(dataset_audio_path, dataset_annot_path, audio_suffix=".wav", annot_suffix=".csv"):
-    uids = [os.path.basename(f)[:-len(audio_suffix)] for f in glob(os.path.join(dataset_audio_path, "*"+audio_suffix))]
+    uids = [os.path.basename(f)[:-len(audio_suffix)] for f in sorted(glob(os.path.join(dataset_audio_path, "*"+audio_suffix)))]
     for uid in uids:
         audio_path = glob(os.path.join(dataset_audio_path, uid+audio_suffix))
         annot_path = glob(os.path.join(dataset_annot_path, uid+annot_suffix))
