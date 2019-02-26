@@ -278,7 +278,7 @@ class NetworkMelody(Network):
     def _summaries(self, args):
         # batch metrics
         with tf.name_scope("metrics"):
-            ref_notes = tf.cast(self.annotations[:, 0], tf.float64)
+            ref_notes = tf.cast(self.annotations[:, 0], tf.float32)
             correct = tf.less(tf.abs(ref_notes-self.est_notes), 0.5)
             voiced = tf.greater(self.annotations[:, 0], 0)
             voiced_est = tf.greater(self.est_notes, 0)

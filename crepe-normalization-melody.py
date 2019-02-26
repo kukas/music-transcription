@@ -84,24 +84,20 @@ def create_model(self, args):
     note_bins = tf.reshape(tf.tile(note_bins, [batch_size * self.annotations_per_window]), [batch_size, self.annotations_per_window, self.bin_count])
     if args.annotation_smoothing > 0:
         self.note_probabilities = tf.nn.sigmoid(self.note_logits)
-
         note_ref = tf.tile(tf.reshape(annotations, [-1, self.annotations_per_window, 1]), [1, 1, self.bin_count])
-        print(note_bins.shape)
-        print(note_ref.shape)
         ref_probabilities = tf.exp(-(note_ref-note_bins)**2/(args.annotation_smoothing**2))
-        print(ref_probabilities.shape)
         
         weights = tf.tile(tf.expand_dims(voicing_ref, -1), [1, 1, self.bin_count])
         self.loss = tf.losses.sigmoid_cross_entropy(ref_probabilities, self.note_logits, weights=weights)
     else:
         self.note_probabilities = tf.nn.softmax(self.note_logits)
         ref_bins = tf.cast(tf.round(self.annotations[:, 0] * self.bins_per_semitone), tf.int32)
-        # ref_probs = tf.one_hot(ref_bins, self.bin_count)
-        # weights = tf.map_fn(lambda b: tf.map_fn(lambda v: tf.fill([self.bin_count], v), b), voicing_ref)
-        # self.loss = tf.losses.sigmoid_cross_entropy(ref_probs, self.note_logits, weights=weights)
         self.loss = tf.losses.sparse_softmax_cross_entropy(ref_bins, self.note_logits, weights=voicing_ref)
 
-    self.est_notes = tf.argmax(self.note_logits, axis=2) / self.bins_per_semitone
+    peak = tf.cast(tf.argmax(self.note_logits, axis=2) / self.bins_per_semitone, tf.float32)
+    peak = tf.cast(tf.abs(tf.tile(tf.reshape(peak, [batch_size, self.annotations_per_window, 1]), [1, 1, self.bin_count]) - note_bins) < 0.5, tf.float32)
+    probs_around_peak = self.note_probabilities*peak
+    self.est_notes = tf.reduce_sum(note_bins * probs_around_peak, axis=2)/tf.reduce_sum(probs_around_peak, axis=2)
 
     reg_variables = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
     self.loss += args.l2_loss_weight * tf.reduce_sum(reg_variables)
