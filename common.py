@@ -51,18 +51,6 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
     validation_datasets = []
     test_datasets = []
     train_data = []
-    if datasets.wjazzd.prefix in which:
-        wjazzd_train, wjazzd_test, wjazzd_validation, wjazzd_small_validation = datasets.wjazzd.prepare(preload_fn)
-        wjazzd_test_dataset = datasets.AADataset(wjazzd_test, args, dataset_transform)
-        wjazzd_validation_dataset = datasets.AADataset(wjazzd_validation, args, dataset_transform)
-        wjazzd_small_validation_dataset = datasets.AADataset(wjazzd_small_validation, args, dataset_transform)
-        validation_datasets += [
-            VD("small_"+datasets.wjazzd.prefix, wjazzd_small_validation_dataset, 3000, small_hooks),
-            VD(datasets.wjazzd.prefix, wjazzd_validation_dataset, 30000, valid_hooks),
-        ]
-        test_datasets.append(VD(datasets.wjazzd.prefix, wjazzd_test_dataset, 0, test_hooks))
-        train_data += wjazzd_train
-
     if datasets.medleydb.prefix in which:
         medleydb_train, medleydb_test, medleydb_validation, medleydb_small_validation = datasets.medleydb.prepare(preload_fn)
         medleydb_test_dataset = datasets.AADataset(medleydb_test, args, dataset_transform)
@@ -72,7 +60,10 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
             VD("small_"+datasets.medleydb.prefix, medleydb_small_validation_dataset, 3000, small_hooks),
             VD(datasets.medleydb.prefix, medleydb_validation_dataset, 20000, valid_hooks),
         ]
-        test_datasets.append(VD(datasets.medleydb.prefix, medleydb_test_dataset, 0, test_hooks))
+        test_datasets += [
+            VD(datasets.medleydb.prefix, medleydb_test_dataset, 0, test_hooks),
+            VD(datasets.medleydb.prefix, medleydb_validation_dataset, 0, test_hooks),
+        ]
         train_data += medleydb_train
 
     if datasets.mdb_melody_synth.prefix in which:
@@ -82,7 +73,10 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
         validation_datasets += [
             VD(datasets.mdb_melody_synth.prefix, mdb_melody_synth_validation_dataset, 30000, valid_hooks),
         ]
-        test_datasets.append(VD(datasets.mdb_melody_synth.prefix, mdb_melody_synth_test_dataset, 0, test_hooks))
+        test_datasets += [
+            VD(datasets.mdb_melody_synth.prefix, mdb_melody_synth_test_dataset, 0, test_hooks),
+            VD(datasets.mdb_melody_synth.prefix, mdb_melody_synth_validation_dataset, 0, test_hooks),
+        ]
         train_data += mdb_melody_synth_train
 
     if datasets.mdb_stem_synth.prefix in which:
@@ -101,6 +95,21 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
         validation_datasets += [
             VD("small_"+datasets.mdb_mf0_synth.prefix, mdb_mf0_synth_small_validation_dataset, 3000, small_hooks_mf0),
         ]
+    
+    if datasets.wjazzd.prefix in which:
+        wjazzd_train, wjazzd_test, wjazzd_validation, wjazzd_small_validation = datasets.wjazzd.prepare(preload_fn)
+        wjazzd_test_dataset = datasets.AADataset(wjazzd_test, args, dataset_transform)
+        wjazzd_validation_dataset = datasets.AADataset(wjazzd_validation, args, dataset_transform)
+        wjazzd_small_validation_dataset = datasets.AADataset(wjazzd_small_validation, args, dataset_transform)
+        validation_datasets += [
+            VD("small_"+datasets.wjazzd.prefix, wjazzd_small_validation_dataset, 3000, small_hooks),
+            VD(datasets.wjazzd.prefix, wjazzd_validation_dataset, 30000, valid_hooks),
+        ]
+        test_datasets += [
+            VD(datasets.wjazzd.prefix, wjazzd_test_dataset, 0, test_hooks),
+            VD(datasets.wjazzd.prefix, wjazzd_validation_dataset, 0, test_hooks),
+        ]
+        train_data += wjazzd_train
 
     if datasets.orchset.prefix in which:
         orchset_test, orchset_small_validation = datasets.orchset.prepare(preload_fn)
