@@ -33,6 +33,7 @@ sampling rates or as spectrograms. '''
 class Audio:
     def __init__(self, path, uid):
         self.path = path
+        self.filename = os.path.splitext(os.path.basename(path))[0]
         self.uid = uid
         self.samples = []
         self.samples_count = 0
@@ -46,12 +47,7 @@ class Audio:
         check_dir(PROCESSED_FILES_PATH)
         resampled_path = os.path.join(PROCESSED_FILES_PATH, self.uid+"_{}.wav".format(samplerate))
 
-        if os.path.isfile(resampled_path):
-            audio, sr_orig = sf.read(resampled_path, dtype="int16")
-            self.samples = audio
-
-            assert sr_orig == samplerate
-        else:
+        if not os.path.isfile(resampled_path):
             print("resampling", self.uid)
             audio, sr_orig = sf.read(self.path)
             print(audio.shape)
@@ -62,7 +58,10 @@ class Audio:
 
             sf.write(resampled_path, audio_low.astype(np.float32), samplerate)
 
-            self.samples = audio_low
+        audio, sr_orig = sf.read(resampled_path, dtype="int16")
+        self.samples = audio
+
+        assert sr_orig == samplerate
 
         self.samples_count = len(self.samples)
         self.samplerate = samplerate

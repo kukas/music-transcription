@@ -21,7 +21,8 @@ def melody_dataset_generator(dataset_audio_path, dataset_annot_path, audio_suffi
             yield Track(audio_path[0], annot_path[0], uid)
         else:
             if len(annot_path) == 0:
-                warnings.warn("Missing annotation for {}".format(uid))
+                pass
+                # warnings.warn("Missing annotation for {}".format(uid))
             else:
                 warnings.warn("More matching annotations for {}".format(uid))
 

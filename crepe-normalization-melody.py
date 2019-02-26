@@ -82,13 +82,13 @@ def create_model(self, args):
 
     note_bins = tf.range(0, 128, 1/self.bins_per_semitone, dtype=tf.float32)
     note_bins = tf.reshape(tf.tile(note_bins, [batch_size * self.annotations_per_window]), [batch_size, self.annotations_per_window, self.bin_count])
-    if args.annotation_smoothing:
+    if args.annotation_smoothing > 0:
         self.note_probabilities = tf.nn.sigmoid(self.note_logits)
 
         note_ref = tf.tile(tf.reshape(annotations, [-1, self.annotations_per_window, 1]), [1, 1, self.bin_count])
         print(note_bins.shape)
         print(note_ref.shape)
-        ref_probabilities = tf.exp(-(note_ref-note_bins)**2/2/0.2/0.2)
+        ref_probabilities = tf.exp(-(note_ref-note_bins)**2/(args.annotation_smoothing**2))
         print(ref_probabilities.shape)
         
         weights = tf.tile(tf.expand_dims(voicing_ref, -1), [1, 1, self.bin_count])
@@ -138,23 +138,23 @@ parser.add_argument("--note_range", default=128, type=int, help="Note range.")
 parser.add_argument("--samplerate", default=16000, type=int, help="Audio samplerate used in the model, resampling is done automatically.")
 parser.add_argument("--logdir", default=None, type=str, help="Path to model directory.")
 parser.add_argument("--checkpoint", default="model", type=str, help="Checkpoint name.")
-parser.add_argument("--evaluate", default=False, type=bool, help="Only evaluate.")
-parser.add_argument("--full_trace", default=False, type=bool, help="Profile Tensorflow session.")
-parser.add_argument("--debug_memory_leaks", default=False, type=bool, help="Debug memory leaks.")
+parser.add_argument("--evaluate", action='store_true', help="Only evaluate.")
+parser.add_argument("--full_trace", action='store_true', help="Profile Tensorflow session.")
+parser.add_argument("--debug_memory_leaks", action='store_true', help="Debug memory leaks.")
 # Model specific arguments
-parser.add_argument("--input_normalization", default=True, type=bool, help="Normalize each input example")
+parser.add_argument("--input_normalization", action='store_true', default=True, help="Enable normalizing each input example")
+parser.add_argument("--no_input_normalization", action='store_true', dest='input_normalization', help="Disable normalizing each input example")
 parser.add_argument("--learning_rate", default=0.0002, type=float, help="Learning rate")
 parser.add_argument("--capacity_multiplier", default=16, type=int, help="Capacity multiplier of the model")
-parser.add_argument("--clip_gradients", default=3.0, type=float, help="Clip gradients by global norm")
-parser.add_argument("--l2_loss_weight", default=0.001, type=float, help="L2 loss weight")
+parser.add_argument("--clip_gradients", default=0.0, type=float, help="Clip gradients by global norm")
+parser.add_argument("--l2_loss_weight", default=0.0, type=float, help="L2 loss weight")
 parser.add_argument("--multiresolution_convolution", default=0, type=int, help="Number of different resolution of the first convolution layer")
 parser.add_argument("--bins_per_semitone", default=1, type=int, help="Bins per semitone")
-parser.add_argument("--annotation_smoothing", default=False, type=bool, help="Gaussian blur for the frame annotations")
+parser.add_argument("--annotation_smoothing", default=0.25, type=float, help="Set standard deviation of the gaussian blur for the frame annotations")
 
 args = parser.parse_args()
 
-name_normalized = ("_normalized" if args.input_normalization else "")
-common.name(args, "crepe_{}mult{}".format(args.capacity_multiplier, name_normalized))
+common.name(args, "crepe")
 
 # Construct the network
 network = NetworkMelody(threads=args.threads)
@@ -170,18 +170,14 @@ with network.session.graph.as_default():
     def dataset_transform_train(tf_dataset, dataset):
         return tf_dataset.shuffle(10**5).map(dataset.prepare_example, num_parallel_calls=4).batch(args.batch_size).prefetch(1)
 
-    train_dataset, validation_datasets = common.prepare_datasets(args.datasets, args, preload_fn, dataset_transform, dataset_transform_train)
+    train_dataset, test_datasets, validation_datasets = common.prepare_datasets(args.datasets, args, preload_fn, dataset_transform, dataset_transform_train)
 
     network.construct(args, create_model, train_dataset.dataset.output_types, train_dataset.dataset.output_shapes, dataset_preload_fn=preload_fn, dataset_transform=dataset_transform)
 
 if args.evaluate:
-    pass
-    # TODO evaluation
-    # print("ORCHSET evaluation")
-    # valid_data_orchset = datasets.orchset.dataset("data/Orchset/")
-    # orchset_dataset = datasets.AADataset(valid_data_orchset, args, dataset_transform)
-    # network.evaluate(orchset_dataset, print_detailed=True)
+    for vd in test_datasets:
+        print("{} evaluation".format(vd.name))
+        network.evaluate(vd)
 else:
     network.train(train_dataset, args.epochs, validation_datasets, save_every_n_batches=10000)
     network.save()
-

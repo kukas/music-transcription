@@ -240,15 +240,15 @@ class Network:
 
         return self._predict_handle(handle)
 
-    def _evaluate_handle(self, dataset, handle, dataset_name=None, visual_output=None, print_detailed=False):
+    def _evaluate_handle(self, vd, handle):
         raise NotImplementedError()
 
-    def evaluate(self, dataset, **kwargs):
+    def evaluate(self, vd):
         with self.session.graph.as_default():
-            iterator = dataset.dataset.make_one_shot_iterator()
+            iterator = vd.dataset.dataset.make_one_shot_iterator()
         handle = self.session.run(iterator.string_handle())
 
-        return self._evaluate_handle(dataset, handle, **kwargs)
+        return self._evaluate_handle(vd, handle)
 
     def save_model_fn(self, create_model):
         source = inspect.getsource(create_model)
@@ -269,8 +269,9 @@ class Network:
         print("Model saved in path:", save_path)
 
     def restore(self, name="model"):
-        self.saver.restore(self.session, self.logdir+"/"+name+".ckpt")
-        print("Model restored from path:", self.logdir)
+        restore_path = self.logdir+"/"+name+".ckpt"
+        self.saver.restore(self.session, restore_path)
+        print("Model restored from path:", restore_path)
 
 
 class NetworkMelody(Network):

@@ -8,6 +8,7 @@ import visualization as vis
 import matplotlib.pyplot as plt
 import matplotlib
 import os
+import csv
 
 mir_eval.multipitch.MIN_FREQ = 1
 
@@ -100,14 +101,23 @@ class VisualOutputHook(EvaluationHook):
 
 
 class MetricsHook(EvaluationHook):
-    def __init__(self, print_detailed=False):
+    def __init__(self, write_summaries=True, print_detailed=False, write_estimations=False):
         self.print_detailed = print_detailed
+        self.write_summaries = write_summaries
+        self.write_estimations = write_estimations
 
     def before_run(self, ctx, vd):
         self.all_metrics = []
         return [ctx.loss]
 
     def every_aa(self, ctx, vd, aa, est_time, est_freq):
+        if self.write_estimations:
+            est_dir = os.path.join(ctx.logdir, ctx.args.checkpoint+"-f0-outputs", vd.name+"-test-melody-outputs")
+            os.makedirs(est_dir, exist_ok=True)
+            with open(os.path.join(est_dir, aa.audio.filename+".csv"), 'w') as f:
+                writer = csv.writer(f)
+                writer.writerows(zip(est_time, est_freq))
+
         ref_time = aa.annotation.times
         ref_freq = np.squeeze(aa.annotation.freqs, 1)
 
@@ -137,7 +147,7 @@ class MetricsHook(EvaluationHook):
         if self.print_detailed:
             print(ctx.metrics)
 
-        if vd.name is not None:
+        if vd.name is not None and self.write_summaries:
             prefix = "valid_{}/".format(vd.name)
 
             global_step = tf.train.global_step(ctx.session, ctx.global_step)

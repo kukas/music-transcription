@@ -31,9 +31,10 @@ def prepare(preload_fn):
         return filter(lambda x: x.uid in wjazzd_split[name], gen)
 
     train_data = load_melody_dataset(prefix, wjazzd_gen_split("train"))
+    test_data = load_melody_dataset(prefix, wjazzd_gen_split("test"))
     valid_data = load_melody_dataset(prefix, wjazzd_gen_split("validation"))
 
-    for aa in train_data+valid_data:
+    for aa in train_data+test_data+valid_data:
         preload_fn(aa)
 
     # TODO: choose better small validation
@@ -42,4 +43,4 @@ def prepare(preload_fn):
         valid_data[49].slice(10, 20),
     ]
 
-    return train_data, valid_data, small_validation_data
+    return train_data, test_data, valid_data, small_validation_data
