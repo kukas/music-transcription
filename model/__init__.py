@@ -116,8 +116,8 @@ class Network:
             # Initialize variables
             self.session.run(tf.global_variables_initializer())
 
-            if os.path.exists(os.path.join(self.logdir, "model.ckpt.index")):
-                self.restore()
+            if os.path.exists(os.path.join(self.logdir, args.checkpoint+".ckpt.index")):
+                self.restore(args.checkpoint)
             
     def _summaries(self, args):
         raise NotImplementedError()
@@ -268,8 +268,8 @@ class Network:
         save_path = self.saver.save(self.session, self.logdir+"/"+name+".ckpt")
         print("Model saved in path:", save_path)
 
-    def restore(self):
-        self.saver.restore(self.session, self.logdir+"/model.ckpt")
+    def restore(self, name="model"):
+        self.saver.restore(self.session, self.logdir+"/"+name+".ckpt")
         print("Model restored from path:", self.logdir)
 
 

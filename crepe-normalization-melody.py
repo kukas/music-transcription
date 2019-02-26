@@ -66,7 +66,6 @@ def create_model(self, args):
     audio_net = common.bn_conv(audio_net, 16*capacity_multiplier, 64, 1, "same", activation=tf.nn.relu, training=self.is_training)
     audio_net = tf.layers.max_pooling1d(audio_net, 2, 2)
     audio_net = tf.layers.dropout(audio_net, 0.25, training=self.is_training)
-    audio_net = common.bn_conv(audio_net, 8*capacity_multiplier, 4, 1, "same", activation=tf.nn.relu, training=self.is_training)
 
     audio_net = tf.layers.flatten(audio_net)
 
@@ -78,28 +77,31 @@ def create_model(self, args):
     # output_layer = tf.layers.dense(dense, self.bin_count, activation=None, bias_regularizer=tf.nn.l2_loss, kernel_regularizer=tf.nn.l2_loss)
 
     self.note_logits = tf.reshape(output_layer, [-1, self.annotations_per_window, self.bin_count])
-    self.note_probabilities = tf.nn.softmax(self.note_logits)
-    # todo averaging
-    self.est_notes = tf.argmax(self.note_logits, axis=2) / self.bins_per_semitone
 
+    batch_size = tf.shape(annotations)[0]
+
+    note_bins = tf.range(0, 128, 1/self.bins_per_semitone, dtype=tf.float32)
+    note_bins = tf.reshape(tf.tile(note_bins, [batch_size * self.annotations_per_window]), [batch_size, self.annotations_per_window, self.bin_count])
     if args.annotation_smoothing:
-        note_bins = tf.range(0, 128, 1/self.bins_per_semitone, dtype=tf.float32)
-        note_bins = tf.reshape(tf.tile(note_bins, [args.batch_size]), [args.batch_size, self.bin_count])
-        note_ref = tf.expand_dims(annotations[:, 0], 1)
-        note_ref = tf.tile(note_ref, [1, self.bin_count])
+        self.note_probabilities = tf.nn.sigmoid(self.note_logits)
+
+        note_ref = tf.tile(tf.reshape(annotations, [-1, self.annotations_per_window, 1]), [1, 1, self.bin_count])
+        print(note_bins.shape)
+        print(note_ref.shape)
         ref_probabilities = tf.exp(-(note_ref-note_bins)**2/2/0.2/0.2)
+        print(ref_probabilities.shape)
         
-        # weights = tf.map_fn(lambda b: tf.map_fn(lambda v: tf.fill([self.bin_count], v), b), voicing_ref)
-        voicing_ref = tf.tile(tf.expand_dims(voicing_ref, -1), [1, 1, self.bin_count])
-        # print("====", weights.shape, voicing_ref.shape)
-        self.loss = tf.losses.sigmoid_cross_entropy(ref_probabilities, tf.reshape(self.note_logits, [-1, self.bin_count]))
-        # self.loss = tf.losses.sigmoid_cross_entropy(ref_probabilities, self.note_logits, weights=weights)
+        weights = tf.tile(tf.expand_dims(voicing_ref, -1), [1, 1, self.bin_count])
+        self.loss = tf.losses.sigmoid_cross_entropy(ref_probabilities, self.note_logits, weights=weights)
     else:
+        self.note_probabilities = tf.nn.softmax(self.note_logits)
         ref_bins = tf.cast(tf.round(self.annotations[:, 0] * self.bins_per_semitone), tf.int32)
         # ref_probs = tf.one_hot(ref_bins, self.bin_count)
         # weights = tf.map_fn(lambda b: tf.map_fn(lambda v: tf.fill([self.bin_count], v), b), voicing_ref)
         # self.loss = tf.losses.sigmoid_cross_entropy(ref_probs, self.note_logits, weights=weights)
         self.loss = tf.losses.sparse_softmax_cross_entropy(ref_bins, self.note_logits, weights=voicing_ref)
+
+    self.est_notes = tf.argmax(self.note_logits, axis=2) / self.bins_per_semitone
 
     reg_variables = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
     self.loss += args.l2_loss_weight * tf.reduce_sum(reg_variables)
@@ -109,10 +111,10 @@ def create_model(self, args):
         optimizer = tf.train.AdamOptimizer(args.learning_rate)
         # Get the gradient pairs (Tensor, Variable)
         grads_and_vars = optimizer.compute_gradients(self.loss)
-        grads, tvars = zip(*grads_and_vars)
-        grads, _ = tf.clip_by_global_norm(grads, args.clip_gradients)
-
-        grads_and_vars = list(zip(grads, tvars))
+        if args.clip_gradients > 0:
+            grads, tvars = zip(*grads_and_vars)
+            grads, _ = tf.clip_by_global_norm(grads, args.clip_gradients)
+            grads_and_vars = list(zip(grads, tvars))
         # Update the weights wrt to the gradient
         self.training = optimizer.apply_gradients(grads_and_vars, global_step=self.global_step)
 
@@ -125,6 +127,7 @@ def create_model(self, args):
 # Parse arguments
 import argparse
 parser = argparse.ArgumentParser()
+parser.add_argument("--datasets", default=["mdb"], nargs="+", type=str, help="Datasets to use for this experiment")
 parser.add_argument("--epochs", default=10, type=int, help="Number of epochs to train for.")
 parser.add_argument("--threads", default=1, type=int, help="Maximum number of threads to use.")
 parser.add_argument("--batch_size", default=32, type=int, help="Number of examples in one batch")
@@ -134,6 +137,8 @@ parser.add_argument("--context_width", default=int(np.ceil((2048-93)/2)), type=i
 parser.add_argument("--note_range", default=128, type=int, help="Note range.")
 parser.add_argument("--samplerate", default=16000, type=int, help="Audio samplerate used in the model, resampling is done automatically.")
 parser.add_argument("--logdir", default=None, type=str, help="Path to model directory.")
+parser.add_argument("--checkpoint", default="model", type=str, help="Checkpoint name.")
+parser.add_argument("--evaluate", default=False, type=bool, help="Only evaluate.")
 parser.add_argument("--full_trace", default=False, type=bool, help="Profile Tensorflow session.")
 parser.add_argument("--debug_memory_leaks", default=False, type=bool, help="Debug memory leaks.")
 # Model specific arguments
@@ -165,14 +170,18 @@ with network.session.graph.as_default():
     def dataset_transform_train(tf_dataset, dataset):
         return tf_dataset.shuffle(10**5).map(dataset.prepare_example, num_parallel_calls=4).batch(args.batch_size).prefetch(1)
 
-    train_dataset, validation_datasets = common.prepare_datasets(["mdb_stem_synth"], args, preload_fn, dataset_transform, dataset_transform_train)
+    train_dataset, validation_datasets = common.prepare_datasets(args.datasets, args, preload_fn, dataset_transform, dataset_transform_train)
 
     network.construct(args, create_model, train_dataset.dataset.output_types, train_dataset.dataset.output_shapes, dataset_preload_fn=preload_fn, dataset_transform=dataset_transform)
 
-network.train(train_dataset, args.epochs, validation_datasets, save_every_n_batches=10000)
-network.save()
+if args.evaluate:
+    pass
+    # TODO evaluation
+    # print("ORCHSET evaluation")
+    # valid_data_orchset = datasets.orchset.dataset("data/Orchset/")
+    # orchset_dataset = datasets.AADataset(valid_data_orchset, args, dataset_transform)
+    # network.evaluate(orchset_dataset, print_detailed=True)
+else:
+    network.train(train_dataset, args.epochs, validation_datasets, save_every_n_batches=10000)
+    network.save()
 
-# print("ORCHSET evaluation")
-# valid_data_orchset = datasets.orchset.dataset("data/Orchset/")
-# orchset_dataset = datasets.AADataset(valid_data_orchset, args, dataset_transform)
-# network.evaluate(orchset_dataset, print_detailed=True)

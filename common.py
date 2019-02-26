@@ -2,11 +2,12 @@ import tensorflow as tf
 import json
 import datasets
 import datetime
+import time
 from model import VD, VisualOutputHook, MetricsHook, MetricsHook_mf0, VisualOutputHook_mf0, SaveBestModelHook
 
 def name(args, prefix=""):
     if args.logdir is None:
-        filtered = ["threads", "logdir"]
+        filtered = ["threads", "logdir", "epochs", "debug_memory_leaks", "full_trace", "evaluate", "note_range", "checkpoint"]
         prefix = "crepe"
         name = "{}-{}".format(datetime.datetime.now().strftime("%m%d_%H%M%S"), prefix)
         for k, v in vars(args).items():
@@ -38,9 +39,11 @@ def conv(inputs, filters, size, strides, padding, activation=None, dilation_rate
 
 
 def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transform_train):
+    timer = time.time()
+
     small_hooks_mf0 = [MetricsHook_mf0(), VisualOutputHook_mf0(True, True, True)]
     small_hooks = [MetricsHook(), VisualOutputHook(True, True, False)]
-    valid_hooks = [MetricsHook(), VisualOutputHook(False, False, True), SaveBestModelHook()]
+    valid_hooks = [MetricsHook(), VisualOutputHook(False, False, True), SaveBestModelHook(args.logdir)]
 
     validation_datasets = []
     train_data = []
@@ -90,5 +93,7 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
         ]
 
     train_dataset = datasets.AADataset(train_data, args, dataset_transform_train, shuffle=True)
+
+    print("datasets ready in {:.2f}s".format(time.time() - timer))
 
     return train_dataset, validation_datasets
