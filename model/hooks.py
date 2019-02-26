@@ -84,7 +84,7 @@ class VisualOutputHook(EvaluationHook):
             # TODO!! opravit array additional na dictionary
             note_probs = np.concatenate(np.concatenate([x[1] for x in additional]), axis=0).T
 
-            fig = vis.draw_probs(note_probs, reference)
+            fig = vis.draw_probs(note_probs, reference, estimation)
             img_summary = vis.fig2summary(fig)
             ctx.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+"probs", image=img_summary)]), global_step)
             plt.cla()

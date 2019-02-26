@@ -29,7 +29,7 @@ def flatten(notesets):
 
 
 def draw_notes(ref, est, style=".", title=None):
-    fig, ax = plt.subplots(figsize=(15, 6))
+    fig, ax = plt.subplots(figsize=(len(ref)/100, 6))
     if title:
         ax.set_title(title)
     ax.set(xlabel='frame', ylabel='midi note')
@@ -133,8 +133,8 @@ def draw_confusion(ref, est):
     return fig
 
 
-def draw_probs(probs, ref, title=None):
-    fig, ax = plt.subplots(figsize=(15, 6))
+def draw_probs(probs, ref, est, title=None):
+    fig, ax = plt.subplots(figsize=(len(ref)/100, 6))
     # ax.set_ylim(0, 128)
     if title:
         ax.set_title(title)
@@ -143,7 +143,7 @@ def draw_probs(probs, ref, title=None):
     ax.imshow(probs, aspect="auto", origin='lower', extent=[0, probs.shape[1], 0, 128])
 
     indices_ref, ref = flatten(ref)
-    ax.plot(indices_ref, ref, ",", color="#ff0000", alpha=0.5)
+    ax.plot(indices_ref, ref, ",", color="#ff0000", alpha=1.0)
 
     plt.tight_layout()
 
