@@ -94,7 +94,7 @@ def evaluate_dataset_melody(refs, ests, per_track_info=False):
 def results(method, path, est_suffix=".csv"):
     results = {}
     # Iterates through the datasets
-    for prefix, (_, dataset_iterator) in get_dataset_list().items():
+    for prefix, (dataset_name, dataset_iterator) in get_dataset_list().items():
         # List of the paths to reference annotations
         annot_paths = map(lambda x: x.annot_path, dataset_iterator)
         audio_names = map(lambda x: os.path.splitext(os.path.basename(x.audio_path))[0], dataset_iterator)
@@ -105,7 +105,8 @@ def results(method, path, est_suffix=".csv"):
             est_paths = [join(path, ests_dir, name+est_suffix) for name in audio_names]
 
             result = evaluate_dataset_melody(annot_paths, est_paths)
-            results[name] = result
+            if result:
+                results[dataset_name] = result
     return results
 
 def summary(method, path, est_suffix=".csv"):
