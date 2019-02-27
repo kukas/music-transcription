@@ -16,6 +16,12 @@ mir_eval.multipitch.MIN_FREQ = 1
 def simplify_name(name):
     return name.lower().replace(" ", "_")
 
+def add_fig(fig, summary_writer, tag, global_step=0):
+    img_summary = vis.fig2summary(fig)
+    summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=tag, image=img_summary)]), global_step)
+    plt.cla()
+    plt.clf()
+    plt.close('all')
 
 class EvaluationHook:
     def before_run(self, ctx, vd):
@@ -48,10 +54,11 @@ class EvaluationHook_mf0:
 
 
 class VisualOutputHook(EvaluationHook):
-    def __init__(self, draw_notes=True, draw_probs=True, draw_confusion=False):
+    def __init__(self, draw_notes=True, draw_probs=True, draw_confusion=False, draw_hists=False):
         self.draw_notes = draw_notes
         self.draw_probs = draw_probs
         self.draw_confusion = draw_confusion
+        self.draw_hists = draw_hists
 
     def before_run(self, ctx, vd):
         self.reference = []
@@ -73,31 +80,21 @@ class VisualOutputHook(EvaluationHook):
         global_step = tf.train.global_step(ctx.session, ctx.global_step)
 
         if self.draw_notes:
-            fig = vis.draw_notes(reference, estimation, title=title)
-            img_summary = vis.fig2summary(fig)
-            ctx.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+"notes", image=img_summary)]), global_step)
-            plt.cla()
-            plt.clf()
-            plt.close('all')
+            note_probs = None
+            if self.draw_probs:
+                # TODO!! opravit array additional na dictionary
+                note_probs = np.concatenate(np.concatenate([x[1] for x in additional]), axis=0).T
 
-        if self.draw_probs:
-            # TODO!! opravit array additional na dictionary
-            note_probs = np.concatenate(np.concatenate([x[1] for x in additional]), axis=0).T
-
-            fig = vis.draw_probs(note_probs, reference, estimation)
-            img_summary = vis.fig2summary(fig)
-            ctx.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+"probs", image=img_summary)]), global_step)
-            plt.cla()
-            plt.clf()
-            plt.close('all')
+            fig = vis.draw_notes(reference, estimation, title=title, note_probs=note_probs)
+            add_fig(fig, ctx.summary_writer, prefix+"notes", global_step)
 
         if self.draw_confusion:
             fig = vis.draw_confusion(reference, estimation)
-            img_summary = vis.fig2summary(fig)
-            ctx.summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag=prefix+"confusion", image=img_summary)]), global_step)
-            plt.cla()
-            plt.clf()
-            plt.close('all')
+            add_fig(fig, ctx.summary_writer, prefix+"confusion", global_step)
+
+        if self.draw_hists:
+            fig = vis.draw_hists(reference, estimation)
+            add_fig(fig, ctx.summary_writer, prefix+"histograms", global_step)
 
 
 class MetricsHook(EvaluationHook):

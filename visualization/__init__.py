@@ -10,6 +10,8 @@ import scipy
 
 import tensorflow as tf
 
+import datasets
+
 from IPython.display import Audio
 import itertools
 
@@ -28,14 +30,26 @@ def flatten(notesets):
     return indices, flatnotes
 
 
-def draw_notes(ref, est, style=".", title=None, dynamic_figsize=True):
+def draw_notes(ref, est, title=None, dynamic_figsize=True, note_probs=None):
+    nrows = 1
+    if note_probs is not None:
+        nrows = 2
+
+    width = 9
     if dynamic_figsize:
-        fig, ax = plt.subplots(figsize=(len(ref)/100, 6))
-    else:
-        fig, ax = plt.subplots(figsize=(9, 6))
+        width = len(ref)/150
+
+    fig, axs = plt.subplots(nrows, 1, sharex=True, sharey=False, squeeze=False, figsize=(width, 10))
+    axs = axs[:,0]
+
     if title:
-        ax.set_title(title)
-    ax.set(xlabel='frame', ylabel='midi note')
+        axs[0].set_title(title)
+    axs[1].set_xlabel("frame")
+    axs[0].set_ylabel("midi note")
+    axs[1].set_ylabel("midi note")
+
+    axs[0].set_xlim(0, len(ref))
+    axs[1].set_ylim(0, 128)
 
     # ref = np.array(ref, dtype=np.float16)
     # est = np.array(est, dtype=np.float16)
@@ -61,21 +75,27 @@ def draw_notes(ref, est, style=".", title=None, dynamic_figsize=True):
     indices_ref_rest, ref_rest = flatten(ref)
 
     ms = 2
-    ax.plot(indices_ref_rest, ref_rest, style, color="#222222", label="REF", markersize=ms)
-    ax.plot(indices_unvoiced_incorrect, unvoiced_incorrect, style, color="#A3473A", label="EST voicing error", markersize=ms)
-    ax.plot(indices_incorrect_chroma, incorrect_chroma, style, color="#ffb030", label="EST octave error", markersize=ms)
-    ax.plot(indices_incorrect, incorrect, style, color="#ff300e", label="EST incorrect", markersize=ms)
-    ax.plot(indices_correct, correct, style, color="#0ab02d", label="EST correct", markersize=ms)
+    style = "."
+    axs[0].plot(indices_ref_rest, ref_rest, style, color="#222222", label="REF", markersize=ms)
+    axs[0].plot(indices_unvoiced_incorrect, unvoiced_incorrect, style, color="#A3473A", label="EST voicing error", markersize=ms)
+    axs[0].plot(indices_incorrect_chroma, incorrect_chroma, style, color="#ffb030", label="EST octave error", markersize=ms)
+    axs[0].plot(indices_incorrect, incorrect, style, color="#ff300e", label="EST incorrect", markersize=ms)
+    axs[0].plot(indices_correct, correct, style, color="#0ab02d", label="EST correct", markersize=ms)
 
-    if indices_correct_negative:
-        ax.plot(indices_correct_negative, correct_negative, style, color="#0000ff", label="EST correct negative", markersize=ms)
-    if indices_incorrect_negative:
-        ax.plot(indices_incorrect_negative, incorrect_negative, style, color="#ff00ff", label="EST incorrect negative", markersize=ms)
+    # if indices_correct_negative:
+    #     plt.plot(indices_correct_negative, correct_negative, style, color="#0000ff", label="EST correct negative", markersize=ms)
+    # if indices_incorrect_negative:
+    #     plt.plot(indices_incorrect_negative, incorrect_negative, style, color="#ff00ff", label="EST incorrect negative", markersize=ms)
 
-    ax.legend()
+    axs[0].legend()
 
-    bottom, top = ax.get_ylim()
-    ax.set_ylim(max(0, bottom), min(128, top))
+    bottom, top = axs[0].get_ylim()
+    axs[0].set_ylim(max(0, bottom), min(128, top))
+
+    axs[1].imshow(note_probs, aspect="auto", origin='lower', extent=[0, note_probs.shape[1], 0, 128])
+
+    # indices_ref, ref = flatten(ref)
+    # axs[1].plot(indices_ref, ref, ",", color="#ff0000", alpha=1.0)
 
     plt.tight_layout()
 
@@ -135,6 +155,34 @@ def draw_confusion(ref, est):
 
     return fig
 
+def draw_hists(ref, est):
+    ref_note = datasets.common.multif0_to_melody(ref)
+    est_note = datasets.common.multif0_to_melody(est)
+    diff = est_note - ref_note
+
+    fig, axs = plt.subplots(2, 1, figsize=(16, 6))
+    axs[0].set_title("histogram of estimation distances from ground truth")
+    axs[0].set_xlabel("distance in semitones")
+    axs[0].set_ylabel("number of notes")
+    axs[0].hist(diff, bins=np.arange(-24, 25)-0.5)
+
+    correct_notes = np.zeros([128])
+    total_notes = np.zeros([128]) + 0.00001  # divide by zero fix
+    for n_ref, n_est in zip(ref_note, est_note):
+        if n_ref == 0 or n_est == 0:
+            continue
+        if abs(n_ref-n_est) < 0.5:
+            correct_notes[round(n_ref)] += 1
+        total_notes[round(n_ref)] += 1
+
+    axs[1].set_title("pitch accuracy for every note class")
+    axs[1].set_xlabel("midi note")
+    axs[1].set_ylabel("accuracy")
+    axs[1].plot(correct_notes/total_notes)
+
+    plt.tight_layout()
+
+    return fig
 
 def draw_probs(probs, ref, est, title=None):
     fig, ax = plt.subplots(figsize=(len(ref)/100, 6))
