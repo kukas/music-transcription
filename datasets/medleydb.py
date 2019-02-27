@@ -42,9 +42,15 @@ def prepare(preload_fn):
 
     # TODO: choose better small validation
     small_validation_data = [
-        valid_data[3].slice(15, 20.8),
-        valid_data[9].slice(56, 61.4),
-        valid_data[5].slice(55.6, 61.6),
+        test_data[8].slice(20, 30),  # MatthewEntwistle_FairerHopes, harfa a nějaká flétna - vysoké tóny nezastoupené v training datech
+        test_data[16].slice(53, 57),  # MusicDelta_Pachelbel, housle + violoncello, hodně souzvuků
+        test_data[10].slice(6, 11),  # MatthewEntwistle_Lontano, tichý zpěv bezeslov, nad arpeggiato pianem - hodně melodický šum
+        test_data[3].slice(3, 7),  # ChrisJacoby_BoothShotLincoln, akustická kytara s kytarovým podkladem
+        test_data[6].slice(4, 17),  # Debussy_LenfantProdigue, mužský operní zpěv + klavír
+        valid_data[9].slice(15, 21),  # HezekiahJones_BorrowedHeart, souzvuk zpěváka a zpěvačky
+        valid_data[9].slice(32, 36),  # HezekiahJones_BorrowedHeart, souzvuk zpěváka a zpěvačky
+        valid_data[0].slice(70, 80),  # AmarLal_Rest, kytary
+        valid_data[13].slice(4*60+35, 4*60+45),  # AmarLal_Rest, kytary+perkuse+basová kytara
     ]
 
     return train_data, test_data, valid_data, small_validation_data

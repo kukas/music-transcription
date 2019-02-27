@@ -57,7 +57,7 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
         medleydb_validation_dataset = datasets.AADataset(medleydb_validation, args, dataset_transform)
         medleydb_small_validation_dataset = datasets.AADataset(medleydb_small_validation, args, dataset_transform)
         validation_datasets += [
-            VD("small_"+datasets.medleydb.prefix, medleydb_small_validation_dataset, 3000, small_hooks),
+            VD("small_"+datasets.medleydb.prefix, medleydb_small_validation_dataset, 5000, small_hooks),
             VD(datasets.medleydb.prefix, medleydb_validation_dataset, 20000, valid_hooks),
         ]
         test_datasets += [
@@ -71,7 +71,7 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
         mdb_melody_synth_test_dataset = datasets.AADataset(mdb_melody_synth_test, args, dataset_transform)
         mdb_melody_synth_validation_dataset = datasets.AADataset(mdb_melody_synth_validation, args, dataset_transform)
         validation_datasets += [
-            VD(datasets.mdb_melody_synth.prefix, mdb_melody_synth_validation_dataset, 30000, valid_hooks),
+            VD(datasets.mdb_melody_synth.prefix, mdb_melody_synth_validation_dataset, 40000, valid_hooks),
         ]
         test_datasets += [
             VD(datasets.mdb_melody_synth.prefix, mdb_melody_synth_test_dataset, 0, test_hooks),
@@ -84,8 +84,8 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
         mdb_stem_synth_small_validation_dataset = datasets.AADataset(mdb_stem_synth_small_validation, args, dataset_transform)
         mdb_stem_synth_validation_dataset = datasets.AADataset(mdb_stem_synth_validation, args, dataset_transform)
         validation_datasets += [
-            VD("small_"+datasets.mdb_stem_synth.prefix, mdb_stem_synth_small_validation_dataset, 3000, small_hooks),
-            VD(datasets.mdb_stem_synth.prefix, mdb_stem_synth_validation_dataset, 30000, valid_hooks),
+            VD("small_"+datasets.mdb_stem_synth.prefix, mdb_stem_synth_small_validation_dataset, 5000, small_hooks),
+            VD(datasets.mdb_stem_synth.prefix, mdb_stem_synth_validation_dataset, 40000, valid_hooks),
         ]
         train_data += mdb_stem_synth_train
 
@@ -93,7 +93,7 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
         _, _, mdb_mf0_synth_small_validation = datasets.mdb_mf0_synth.prepare(preload_fn)
         mdb_mf0_synth_small_validation_dataset = datasets.AADataset(mdb_mf0_synth_small_validation, args, dataset_transform)
         validation_datasets += [
-            VD("small_"+datasets.mdb_mf0_synth.prefix, mdb_mf0_synth_small_validation_dataset, 3000, small_hooks_mf0),
+            VD("small_"+datasets.mdb_mf0_synth.prefix, mdb_mf0_synth_small_validation_dataset, 5000, small_hooks_mf0),
         ]
     
     if datasets.wjazzd.prefix in which:
@@ -102,8 +102,8 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
         wjazzd_validation_dataset = datasets.AADataset(wjazzd_validation, args, dataset_transform)
         wjazzd_small_validation_dataset = datasets.AADataset(wjazzd_small_validation, args, dataset_transform)
         validation_datasets += [
-            VD("small_"+datasets.wjazzd.prefix, wjazzd_small_validation_dataset, 3000, small_hooks),
-            VD(datasets.wjazzd.prefix, wjazzd_validation_dataset, 30000, valid_hooks),
+            VD("small_"+datasets.wjazzd.prefix, wjazzd_small_validation_dataset, 5000, small_hooks),
+            VD(datasets.wjazzd.prefix, wjazzd_validation_dataset, 40000, valid_hooks),
         ]
         test_datasets += [
             VD(datasets.wjazzd.prefix, wjazzd_test_dataset, 0, test_hooks),
@@ -115,7 +115,7 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
         orchset_test, orchset_small_validation = datasets.orchset.prepare(preload_fn)
         orchset_test_dataset = datasets.AADataset(orchset_test, args, dataset_transform)
         orchset_small_validation_dataset = datasets.AADataset(orchset_small_validation, args, dataset_transform)
-        validation_datasets.append(VD("small_"+datasets.orchset.prefix, orchset_small_validation_dataset, 3000, small_hooks))
+        validation_datasets.append(VD("small_"+datasets.orchset.prefix, orchset_small_validation_dataset, 5000, small_hooks))
         test_datasets.append(VD(datasets.orchset.prefix, orchset_test_dataset, 0, test_hooks))
 
     if datasets.adc2004.prefix in which:

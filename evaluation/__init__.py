@@ -19,44 +19,53 @@ def get_dataset_list():
     mdb_split = datasets.medleydb.get_split()
     wjazzd_split = datasets.wjazzd.get_split()
 
-    return {
-        datasets.orchset.prefix: (
+    return [
+        (
+            datasets.orchset.prefix,
             "ORCHSET",
             list(datasets.orchset.generator(join(modulepath, "../data/Orchset")))
             ),
-        datasets.adc2004.prefix: (
+        (
+            datasets.adc2004.prefix,
             "ADC04",
             list(datasets.adc2004.generator(join(modulepath, "../data/adc2004")))
             ),
-        datasets.mirex05.prefix: (
+        (
+            datasets.mirex05.prefix,
             "MIREX05",
             list(datasets.mirex05.generator(join(modulepath, "../data/mirex05")))
             ),
-        datasets.mdb_melody_synth.prefix: (
+        (
+            datasets.mdb_melody_synth.prefix,
             "MDB-mel-s.",
             list(filter(lambda x: x.uid in mdb_split["test"], datasets.mdb_melody_synth.generator(join(modulepath, "../data/MDB-melody-synth"))))
             ),
-        datasets.medleydb.prefix: (
+        (
+            datasets.medleydb.prefix,
             "MedleyDB",
             list(filter(lambda x: x.uid in mdb_split["test"], datasets.medleydb.generator(join(modulepath, "../data/MedleyDB/MedleyDB"))))
             ),
-        datasets.wjazzd.prefix: (
+        (
+            datasets.wjazzd.prefix,
             "WJazzD",
             list(filter(lambda x: x.uid in wjazzd_split["test"], datasets.wjazzd.generator(join(modulepath, "../data/WJazzD"))))
             ),
-        datasets.mdb_melody_synth.prefix: (
+        (
+            datasets.mdb_melody_synth.prefix,
             "MDB-mel-s. valid.",
             list(filter(lambda x: x.uid in mdb_split["validation"], datasets.mdb_melody_synth.generator(join(modulepath, "../data/MDB-melody-synth"))))
         ),
-        datasets.medleydb.prefix: (
+        (
+            datasets.medleydb.prefix,
             "MedleyDB valid.",
             list(filter(lambda x: x.uid in mdb_split["validation"], datasets.medleydb.generator(join(modulepath, "../data/MedleyDB/MedleyDB"))))
         ),
-        datasets.wjazzd.prefix: (
+        (
+            datasets.wjazzd.prefix,
             "WJazzD valid.",
             list(filter(lambda x: x.uid in wjazzd_split["validation"], datasets.wjazzd.generator(join(modulepath, "../data/WJazzD"))))
             ),
-    }
+    ]
 
 def evaluate_dataset_melody(refs, ests, per_track_info=False):
     refs = sorted(refs)
@@ -82,7 +91,7 @@ def evaluate_dataset_melody(refs, ests, per_track_info=False):
 
             ref = datasets.common.melody_to_multif0(datasets.common.hz_to_midi_safe(ref_freq))
             est = datasets.common.melody_to_multif0(datasets.common.hz_to_midi_safe(est_freq))
-            vis.draw_notes(ref, est)
+            vis.draw_notes(ref, est, dynamic_figsize=False)
             plt.show()
 
             for k,v in scores.items():
@@ -94,7 +103,7 @@ def evaluate_dataset_melody(refs, ests, per_track_info=False):
 def results(method, path, est_suffix=".csv"):
     results = {}
     # Iterates through the datasets
-    for prefix, (dataset_name, dataset_iterator) in get_dataset_list().items():
+    for (prefix, dataset_name, dataset_iterator) in get_dataset_list():
         # List of the paths to reference annotations
         annot_paths = map(lambda x: x.annot_path, dataset_iterator)
         audio_names = map(lambda x: os.path.splitext(os.path.basename(x.audio_path))[0], dataset_iterator)
@@ -119,7 +128,7 @@ def evaluate_model(network, model_name):
     if not os.path.exists(path):
         os.mkdir(path)
     # Iterates through the datasets
-    for prefix, (dataset_name, dataset_iterator) in get_dataset_list().items():
+    for (prefix, dataset_name, dataset_iterator) in get_dataset_list():
         audios = map(lambda x: datasets.Track(x.audio_path, None, x.uid), dataset_iterator)
 
         ests_dir = join(path, "{}-{}-melody-outputs".format(prefix, model_name))

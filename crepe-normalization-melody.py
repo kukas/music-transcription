@@ -146,7 +146,7 @@ parser.add_argument("--clip_gradients", default=0.0, type=float, help="Clip grad
 parser.add_argument("--l2_loss_weight", default=0.0, type=float, help="L2 loss weight")
 parser.add_argument("--multiresolution_convolution", default=0, type=int, help="Number of different resolution of the first convolution layer")
 parser.add_argument("--bins_per_semitone", default=1, type=int, help="Bins per semitone")
-parser.add_argument("--annotation_smoothing", default=0.25, type=float, help="Set standard deviation of the gaussian blur for the frame annotations")
+parser.add_argument("--annotation_smoothing", default=0.0, type=float, help="Set standard deviation of the gaussian blur for the frame annotations")
 
 args = parser.parse_args()
 

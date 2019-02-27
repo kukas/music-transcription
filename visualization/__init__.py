@@ -28,8 +28,11 @@ def flatten(notesets):
     return indices, flatnotes
 
 
-def draw_notes(ref, est, style=".", title=None):
-    fig, ax = plt.subplots(figsize=(len(ref)/100, 6))
+def draw_notes(ref, est, style=".", title=None, dynamic_figsize=True):
+    if dynamic_figsize:
+        fig, ax = plt.subplots(figsize=(len(ref)/100, 6))
+    else:
+        fig, ax = plt.subplots(figsize=(9, 6))
     if title:
         ax.set_title(title)
     ax.set(xlabel='frame', ylabel='midi note')
