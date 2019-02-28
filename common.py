@@ -44,8 +44,8 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
     timer = time.time()
 
     small_hooks_mf0 = [MetricsHook_mf0(), VisualOutputHook_mf0(True, True, True)]
-    small_hooks = [MetricsHook(), VisualOutputHook(True, True, False)]
-    valid_hooks = [MetricsHook(), VisualOutputHook(False, False, True), SaveBestModelHook(args.logdir)]
+    small_hooks = [MetricsHook(), VisualOutputHook(True, True, False, False)]
+    valid_hooks = [MetricsHook(), VisualOutputHook(False, False, True, True), SaveBestModelHook(args.logdir)]
     test_hooks = [MetricsHook(write_summaries=False, print_detailed=True, write_estimations=True)]
 
     validation_datasets = []

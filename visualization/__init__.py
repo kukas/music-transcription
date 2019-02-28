@@ -160,11 +160,16 @@ def draw_hists(ref, est):
     est_note = datasets.common.multif0_to_melody(est)
     diff = est_note - ref_note
 
-    fig, axs = plt.subplots(2, 1, figsize=(16, 6))
+    fig, axs = plt.subplots(2, 1, figsize=(15, 6))
     axs[0].set_title("histogram of estimation distances from ground truth")
     axs[0].set_xlabel("distance in semitones")
     axs[0].set_ylabel("number of notes")
-    axs[0].hist(diff, bins=np.arange(-24, 25)-0.5)
+    bins = np.arange(-24, 25)
+    axs[0].set_xticks(bins)
+    bins = bins-0.5
+    # ignore the correct estimation bin
+    diff = diff[np.abs(diff) > 0.5]
+    axs[0].hist(diff, bins=bins)
 
     correct_notes = np.zeros([128])
     total_notes = np.zeros([128]) + 0.00001  # divide by zero fix
@@ -172,8 +177,8 @@ def draw_hists(ref, est):
         if n_ref == 0 or n_est == 0:
             continue
         if abs(n_ref-n_est) < 0.5:
-            correct_notes[round(n_ref)] += 1
-        total_notes[round(n_ref)] += 1
+            correct_notes[int(round(n_ref))] += 1
+        total_notes[int(round(n_ref))] += 1
 
     axs[1].set_title("pitch accuracy for every note class")
     axs[1].set_xlabel("midi note")
