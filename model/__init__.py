@@ -265,11 +265,13 @@ class Network:
         self.summary_writer.add_summary(self.session.run(tf.summary.text("hyperparameters", text)))
 
     def save(self, name="model"):
-        save_path = self.saver.save(self.session, self.logdir+"/"+name+".ckpt")
+        save_path = os.path.join(self.logdir, name+".ckpt")
+        save_path = self.saver.save(self.session, save_path)
         print("Model saved in path:", save_path)
 
     def restore(self, name="model"):
-        restore_path = self.logdir+"/"+name+".ckpt"
+        restore_path = os.path.join(self.logdir, name+".ckpt")
+        # restore_path = os.path.normpath(restore_path)
         self.saver.restore(self.session, restore_path)
         print("Model restored from path:", restore_path)
 
