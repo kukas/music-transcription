@@ -30,15 +30,16 @@ class Audio:
         resampled_path = os.path.join(PROCESSED_FILES_PATH, self.uid+"_{}.wav".format(samplerate))
 
         if not os.path.isfile(resampled_path):
-            print("resampling", self.uid)
             audio, sr_orig = sf.read(self.path)
-            print(audio.shape)
+            if sr_orig == samplerate:
+                resampled_path = self.path
+            else:
+                print("resampling", self.uid, "shape", audio.shape)
+                if len(audio.shape) >= 2:  # mono downmixing, if needed
+                    audio = np.mean(audio, axis=1)
+                audio_low = resample(audio, sr_orig, samplerate)
 
-            if len(audio.shape) >= 2:  # mono downmixing, if needed
-                audio = np.mean(audio, axis=1)
-            audio_low = resample(audio, sr_orig, samplerate)
-
-            sf.write(resampled_path, audio_low.astype(np.float32), samplerate)
+                sf.write(resampled_path, audio_low.astype(np.float32), samplerate)
 
         audio, sr_orig = sf.read(resampled_path, dtype="int16")
         self.samples = audio
