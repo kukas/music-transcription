@@ -36,10 +36,12 @@ def draw_notes(ref, est, title=None, dynamic_figsize=True, note_probs=None):
         nrows = 2
 
     width = 9
+    height = 6
     if dynamic_figsize:
         width = len(ref)/150
+        height = 10
 
-    fig, axs = plt.subplots(nrows, 1, sharex=True, sharey=False, squeeze=False, figsize=(width, 6))
+    fig, axs = plt.subplots(nrows, 1, sharex=True, sharey=False, squeeze=False, figsize=(width, height))
     axs = axs[:,0]
 
     if title:
