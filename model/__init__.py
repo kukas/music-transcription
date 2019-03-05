@@ -3,6 +3,7 @@ import pandas
 import evaluation
 import datasets
 import os
+import sys
 import inspect
 import time
 import visualization as vis
@@ -92,7 +93,8 @@ class Network:
 
             create_model(self, args)
 
-            print("Total parameter count:", np.sum([np.prod(v.get_shape().as_list()) for v in tf.trainable_variables()]))
+            self.trainable_parameter_count = np.sum([np.prod(v.get_shape().as_list()) for v in tf.trainable_variables()])
+            print("Total parameter count:", self.trainable_parameter_count)
 
             assert self.note_probabilities is not None and self.note_probabilities.shape.as_list() == [None, self.annotations_per_window, self.bin_count]
             assert self.est_notes is not None
@@ -111,10 +113,6 @@ class Network:
             assert self.raw_pitch_accuracy is not None
             assert self.summaries is not None
 
-            # save the model function for easier reproducibility
-            self.save_model_fn(create_model)
-            self.save_hyperparams(args)
-
             if create_summaries:
                 create_summaries(self, args)
 
@@ -122,7 +120,13 @@ class Network:
             self.session.run(tf.global_variables_initializer())
 
             if os.path.exists(os.path.join(self.logdir, args.checkpoint+".ckpt.index")):
+                self.restored = True
                 self.restore(args.checkpoint)
+            else:
+                self.restored = False
+                # save the model function for easier reproducibility
+                self.save_model_fn(create_model)
+                self.save_hyperparams(args)
             
     def _summaries(self, args):
         raise NotImplementedError()
@@ -139,7 +143,7 @@ class Network:
                 validation_iterators.append(it)
                 validation_handles.append(self.session.run(it.string_handle()))
         
-        self.session.graph.finalize()
+        # self.session.graph.finalize()
 
         b = tf.train.global_step(self.session, self.global_step)
         timer = time.time()
@@ -176,7 +180,7 @@ class Network:
 
                 if b % 1000 == 0 and b != 0:
                     self.summary_writer.add_summary(summary, step)
-                    print("b {0}; t {1:.2f}; rpa {2:.2f}; loss {3:.2f}".format(step, time.time() - timer, raw_pitch_accuracy, loss))
+                    print("b {0}; t {1:.2f}; RPA {2:.2f}; loss {3:.4f}".format(step, time.time() - timer, raw_pitch_accuracy, loss))
                     timer = time.time()
 
 
@@ -204,6 +208,8 @@ class Network:
         notes = defaultdict(list)
         times = defaultdict(list)
         additional = []
+
+        last_uid = None
         while True:
             try:
                 fetches = self.session.run([self.est_notes, self.times, self.audio_uid]+additional_fetches, feed_dict)
@@ -216,6 +222,13 @@ class Network:
                 uid = uid.decode("utf-8")
                 notes[uid].append(est_notes_window)
                 times[uid].append(times_window)
+
+                if last_uid is None:
+                    last_uid = uid
+                if last_uid != uid:
+                    print(".", end="")
+                    last_uid = uid
+        print()
 
         estimations = {}
         for uid in notes.keys():
