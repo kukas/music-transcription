@@ -39,17 +39,13 @@ def draw_notes(ref, est, title=None, dynamic_figsize=True, note_probs=None):
     if dynamic_figsize:
         width = len(ref)/150
 
-    fig, axs = plt.subplots(nrows, 1, sharex=True, sharey=False, squeeze=False, figsize=(width, 10))
+    fig, axs = plt.subplots(nrows, 1, sharex=True, sharey=False, squeeze=False, figsize=(width, 6))
     axs = axs[:,0]
 
     if title:
         axs[0].set_title(title)
-    axs[1].set_xlabel("frame")
     axs[0].set_ylabel("midi note")
-    axs[1].set_ylabel("midi note")
-
     axs[0].set_xlim(0, len(ref))
-    axs[1].set_ylim(0, 128)
 
     # ref = np.array(ref, dtype=np.float16)
     # est = np.array(est, dtype=np.float16)
@@ -92,7 +88,11 @@ def draw_notes(ref, est, title=None, dynamic_figsize=True, note_probs=None):
     bottom, top = axs[0].get_ylim()
     axs[0].set_ylim(max(0, bottom), min(128, top))
 
-    axs[1].imshow(note_probs, aspect="auto", origin='lower', extent=[0, note_probs.shape[1], 0, 128])
+    if note_probs is not None:
+        axs[1].set_ylabel("midi note")
+        axs[1].set_xlabel("frame")
+        axs[1].set_ylim(0, 128)
+        axs[1].imshow(note_probs, aspect="auto", origin='lower', extent=[0, note_probs.shape[1], 0, 128])
 
     # indices_ref, ref = flatten(ref)
     # axs[1].plot(indices_ref, ref, ",", color="#ff0000", alpha=1.0)
