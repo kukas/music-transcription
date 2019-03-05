@@ -43,7 +43,7 @@ class AADataset:
                 raise RuntimeError("Window size is bigger than the audio.")
 
             annot_length = len(aa.annotation.times)
-            annotation_indices = np.arange(0, annot_length, self.annotations_per_window, dtype=np.int32)
+            annotation_indices = np.arange(0, annot_length, self.hop_size, dtype=np.int32)
             aa_indices = np.full((len(annotation_indices),), aa_index, dtype=np.int32)
 
             indices.append(np.stack((aa_indices, annotation_indices), axis=-1))
