@@ -8,7 +8,7 @@ from model import VD, VisualOutputHook, MetricsHook, MetricsHook_mf0, VisualOutp
 
 def name(args, prefix=""):
     if args.logdir is None:
-        filtered = ["threads", "logdir", "epochs", "debug_memory_leaks", "full_trace", "evaluate", "note_range", "checkpoint"]
+        filtered = ["threads", "logdir", "epochs", "debug_memory_leaks", "full_trace", "evaluate", "note_range", "checkpoint", "cpu"]
         name = "{}-{}".format(datetime.datetime.now().strftime("%m%d_%H%M%S"), prefix)
         for k, v in vars(args).items():
             if k not in filtered:
@@ -24,11 +24,11 @@ def name(args, prefix=""):
         print()
 
 
-def bn_conv(inputs, filters, size, strides, padding, activation=None, dilation_rate=1, training=False):
+def bn_conv(inputs, filters, size, strides, padding, activation=None, dilation_rate=1, training=False, reuse=None):
     name = "bn_conv{}-f{}-s{}-dil{}-{}".format(size, filters, strides, dilation_rate, padding)
     with tf.name_scope(name):
-        l = tf.layers.conv1d(inputs, filters, size, strides, padding, activation=None, use_bias=False, dilation_rate=dilation_rate)
-        l = tf.layers.batch_normalization(l, training=training)
+        l = tf.layers.conv1d(inputs, filters, size, strides, padding, activation=None, use_bias=False, dilation_rate=dilation_rate, reuse=reuse)
+        l = tf.layers.batch_normalization(l, training=training, reuse=reuse)
         if activation:
             return activation(l)
         else:

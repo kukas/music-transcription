@@ -25,15 +25,20 @@ VD = namedtuple("ValidationDataset", ["name", "dataset", "evaluate_every", "hook
 
 
 class Network:
-    def __init__(self, threads, seed=42):
+    def __init__(self, args, seed=42):
         # Create an empty graph and a session
         graph = tf.Graph()
         graph.seed = seed
 
         gpu_options = tf.GPUOptions(allow_growth=True)
-        self.session = tf.Session(graph=graph, config=tf.ConfigProto(gpu_options=gpu_options,
-                                                                       inter_op_parallelism_threads=threads,
-                                                                       intra_op_parallelism_threads=threads))
+        device_count = None
+        if args.cpu:
+            device_count = {'GPU': 0}
+        config = tf.ConfigProto(gpu_options=gpu_options,
+                                device_count=device_count,
+                                inter_op_parallelism_threads=args.threads,
+                                intra_op_parallelism_threads=args.threads)
+        self.session = tf.Session(graph=graph, config=config)
 
     def construct(self, args, create_model, output_types, output_shapes, create_summaries=None, dataset_preload_fn=None, dataset_transform=None):
         self.args = args
@@ -149,45 +154,45 @@ class Network:
 
                 try:
                     if b % 1000 == 0:
-                        fetches = [self.accuracy, self.loss, self.training, self.summaries, self.global_step]
+                        fetches = [self.raw_pitch_accuracy, self.loss, self.training, self.summaries, self.global_step]
                         if self.args.full_trace:
                             print("Running with trace_level=FULL_TRACE")
                             run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
                             run_metadata = tf.RunMetadata()
 
                             values = self.session.run(fetches, feed_dict, options=run_options, run_metadata=run_metadata)
-                            self.summary_writer.add_run_metadata(run_metadata, 'run_metadata_step{}'.format(step), global_step=step)
+                            self.summary_writer.add_run_metadata(run_metadata, 'run_metadata_step{}'.format(b))
                         else:
                             values = self.session.run(fetches, feed_dict)
 
-                        accuracy, loss, _, summary, step = values
+                        raw_pitch_accuracy, loss, _, summary, step = values
                     else:
                         self.session.run(self.training, feed_dict)
                 except tf.errors.OutOfRangeError:
                     break
 
-                b += 1
-
-                if b % 200 == 0:
+                if b % 200 == 0 and b != 0:
                     print(".", end="")
 
-                if b % 1000 == 0:
+                if b % 1000 == 0 and b != 0:
                     self.summary_writer.add_summary(summary, step)
-                    print("b {0}; t {1:.2f}; acc {2:.2f}; loss {3:.2f}".format(b, time.time() - timer, accuracy, loss))
+                    print("b {0}; t {1:.2f}; rpa {2:.2f}; loss {3:.2f}".format(step, time.time() - timer, raw_pitch_accuracy, loss))
                     timer = time.time()
 
+
                 for vd, iterator, handle in zip(validation_datasets, validation_iterators, validation_handles):
-                    if b % vd.evaluate_every == 0:
+                    if b % vd.evaluate_every == 0 and b != 0:
                         self.session.run(iterator.initializer)
                         self._evaluate_handle(vd, handle)
                         print("  time: {:.2f}".format(time.time() - timer))
                         timer = time.time()
 
-                if b % save_every_n_batches == 0:
+                if b % save_every_n_batches == 0 and b != 0:
                     self.save()
                     print("saving, t {:.2f}".format(time.time()-timer))
                     timer = time.time()
 
+                b += 1
         print("=== done ===")
 
     def _predict_handle(self, handle, additional_fetches=[]):
@@ -280,25 +285,25 @@ class NetworkMelody(Network):
     def _summaries(self, args):
         # batch metrics
         with tf.name_scope("metrics"):
-            ref_notes = tf.cast(self.annotations[:, 0], tf.float32)
+            ref_notes = tf.cast(self.annotations[:, :, 0], tf.float32)
             correct = tf.less(tf.abs(ref_notes-self.est_notes), 0.5)
-            voiced = tf.greater(self.annotations[:, 0], 0)
+            voiced_ref = tf.greater(self.annotations[:, :, 0], 0)
             voiced_est = tf.greater(self.est_notes, 0)
-            correct_voiced_sum = tf.count_nonzero(tf.logical_and(correct, voiced))
-            n_ref_sum = tf.count_nonzero(voiced)
+            correct_voiced_sum = tf.count_nonzero(tf.logical_and(correct, voiced_ref))
+            n_ref_sum = tf.count_nonzero(voiced_ref)
             n_est_sum = tf.count_nonzero(voiced_est)
 
             def safe_div(numerator, denominator):
                 return tf.cond(denominator > 0, lambda: numerator/denominator, lambda: tf.constant(0, dtype=tf.float64))
 
-            self.precision = safe_div(correct_voiced_sum, n_est_sum)
-            self.recall = safe_div(correct_voiced_sum, n_ref_sum)
+            # self.precision = safe_div(correct_voiced_sum, n_est_sum)
+            self.raw_pitch_accuracy = safe_div(correct_voiced_sum, n_ref_sum)
             acc_denom = n_est_sum + n_ref_sum - correct_voiced_sum
             self.accuracy = safe_div(correct_voiced_sum, acc_denom)
 
             tf.summary.scalar("train/loss", self.loss),
-            tf.summary.scalar("train/precision", self.precision),
-            tf.summary.scalar("train/recall", self.recall),
+            # tf.summary.scalar("train/precision", self.precision),
+            tf.summary.scalar("train/raw_pitch_accuracy", self.raw_pitch_accuracy),
             tf.summary.scalar("train/accuracy", self.accuracy)
 
             self.summaries = tf.summary.merge_all()

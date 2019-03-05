@@ -35,13 +35,36 @@ def create_model(self, args):
 
         for i in range(args.multiresolution_convolution):
             width = 2**(9-i)
-            capacity = 32//args.multiresolution_convolution
+            capacity = 32//args.multiresolution_convolution*args.first_layer_capacity
             l = common.bn_conv(window_with_channel, capacity*capacity_multiplier, width, 4, "same", activation=tf.nn.relu, training=self.is_training)
             print(l.shape, width)
             first_layer.append(l)
 
         audio_net = tf.concat(first_layer, 2)
     else:
+        if args.variable_stride:
+            first_layer = []
+            # print(window_with_channel.shape)
+            first_layer.append(common.bn_conv(window_with_channel[:,512*0:512*1,:], 32*capacity_multiplier, 512, 64, "valid", activation=tf.nn.relu, reuse=None, training=self.is_training))
+            first_layer.append(common.bn_conv(window_with_channel[:,512*1:512*2,:], 32*capacity_multiplier, 512, 32, "valid", activation=tf.nn.relu, reuse=True, training=self.is_training))
+            first_layer.append(common.bn_conv(window_with_channel[:,512*2:512*3,:], 32*capacity_multiplier, 512, 32, "valid", activation=tf.nn.relu, reuse=True, training=self.is_training))
+            first_layer.append(common.bn_conv(window_with_channel[:,512*3:512*4,:], 32*capacity_multiplier, 512, 16, "valid", activation=tf.nn.relu, reuse=True, training=self.is_training))
+            first_layer.append(common.bn_conv(window_with_channel[:,512*4:512*5,:], 32*capacity_multiplier, 512, 16, "valid", activation=tf.nn.relu, reuse=True, training=self.is_training))
+            first_layer.append(common.bn_conv(window_with_channel[:,512*5:512*6,:], 32*capacity_multiplier, 512, 8, "valid", activation=tf.nn.relu, reuse=True, training=self.is_training))
+            first_layer.append(common.bn_conv(window_with_channel[:,512*6:512*7,:], 32*capacity_multiplier, 512, 8, "valid", activation=tf.nn.relu, reuse=True, training=self.is_training))
+            
+            first_layer.append(common.bn_conv(window_with_channel[:,512*7:512*9,:], 32*capacity_multiplier, 512, 4, "same", activation=tf.nn.relu, reuse=True, training=self.is_training))
+            
+            first_layer.append(common.bn_conv(window_with_channel[:,512*9:512*10,:], 32*capacity_multiplier, 512, 8, "valid", activation=tf.nn.relu, reuse=True, training=self.is_training))
+            first_layer.append(common.bn_conv(window_with_channel[:,512*10:512*11,:], 32*capacity_multiplier, 512, 8, "valid", activation=tf.nn.relu, reuse=True, training=self.is_training))
+            first_layer.append(common.bn_conv(window_with_channel[:,512*11:512*12,:], 32*capacity_multiplier, 512, 16, "valid", activation=tf.nn.relu, reuse=True, training=self.is_training))
+            first_layer.append(common.bn_conv(window_with_channel[:,512*12:512*13,:], 32*capacity_multiplier, 512, 16, "valid", activation=tf.nn.relu, reuse=True, training=self.is_training))
+            first_layer.append(common.bn_conv(window_with_channel[:,512*13:512*14,:], 32*capacity_multiplier, 512, 32, "valid", activation=tf.nn.relu, reuse=True, training=self.is_training))
+            first_layer.append(common.bn_conv(window_with_channel[:,512*14:512*15,:], 32*capacity_multiplier, 512, 32, "valid", activation=tf.nn.relu, reuse=True, training=self.is_training))
+            first_layer.append(common.bn_conv(window_with_channel[:,512*15:512*16,:], 32*capacity_multiplier, 512, 64, "valid", activation=tf.nn.relu, reuse=True, training=self.is_training))
+            print(first_layer)
+            audio_net = tf.concat(first_layer, 1)
+        else:
         audio_net = common.bn_conv(window_with_channel, 32*capacity_multiplier, 512, 4, "same", activation=tf.nn.relu, training=self.is_training)
 
     audio_net = tf.layers.max_pooling1d(audio_net, 2, 2)
@@ -83,8 +106,8 @@ def create_model(self, args):
     note_bins = tf.range(0, 128, 1/self.bins_per_semitone, dtype=tf.float32)
     note_bins = tf.reshape(tf.tile(note_bins, [batch_size * self.annotations_per_window]), [batch_size, self.annotations_per_window, self.bin_count])
 
-    peak = tf.cast(tf.argmax(self.note_logits, axis=2) / self.bins_per_semitone, tf.float32)
-    peak = tf.cast(tf.abs(tf.tile(tf.reshape(peak, [batch_size, self.annotations_per_window, 1]), [1, 1, self.bin_count]) - note_bins) < 0.5, tf.float32)
+    peak_ref = self.annotations[:, :, 0]
+    peak_ref = tf.cast(tf.abs(tf.tile(tf.reshape(peak_ref, [batch_size, self.annotations_per_window, 1]), [1, 1, self.bin_count]) - note_bins) < 0.5, tf.float32)
 
     if args.annotation_smoothing > 0:
         self.note_probabilities = tf.nn.sigmoid(self.note_logits)
@@ -93,14 +116,16 @@ def create_model(self, args):
         
         voicing_weights = tf.tile(tf.expand_dims(voicing_ref, -1), [1, 1, self.bin_count])
         # TODO přepsat hezčejc
-        miss_weights = tf.ones_like(voicing_weights)*args.miss_weight + peak*(1-args.miss_weight)
+        miss_weights = tf.ones_like(voicing_weights)*args.miss_weight + peak_ref*(1-args.miss_weight)
         self.loss = tf.losses.sigmoid_cross_entropy(ref_probabilities, self.note_logits, weights=voicing_weights*miss_weights)
     else:
         self.note_probabilities = tf.nn.softmax(self.note_logits)
         ref_bins = tf.cast(tf.round(self.annotations[:, 0] * self.bins_per_semitone), tf.int32)
         self.loss = tf.losses.sparse_softmax_cross_entropy(ref_bins, self.note_logits, weights=voicing_ref)
 
-    probs_around_peak = self.note_probabilities*peak
+    peak_est = tf.cast(tf.argmax(self.note_logits, axis=2) / self.bins_per_semitone, tf.float32)
+    peak_est = tf.cast(tf.abs(tf.tile(tf.reshape(peak_est, [batch_size, self.annotations_per_window, 1]), [1, 1, self.bin_count]) - note_bins) < 0.5, tf.float32)
+    probs_around_peak = self.note_probabilities*peak_est
     self.est_notes = tf.reduce_sum(note_bins * probs_around_peak, axis=2)/tf.reduce_sum(probs_around_peak, axis=2)
 
     reg_variables = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
@@ -142,6 +167,7 @@ def parse_args(argv):
     parser.add_argument("--evaluate", action='store_true', help="Only evaluate.")
     parser.add_argument("--full_trace", action='store_true', help="Profile Tensorflow session.")
     parser.add_argument("--debug_memory_leaks", action='store_true', help="Debug memory leaks.")
+    parser.add_argument("--cpu", action='store_true', help="Disable GPU.")
     # Model specific arguments
     parser.add_argument("--input_normalization", action='store_true', default=True, help="Enable normalizing each input example")
     parser.add_argument("--no_input_normalization", action='store_true', dest='input_normalization', help="Disable normalizing each input example")
@@ -153,6 +179,8 @@ def parse_args(argv):
     parser.add_argument("--bins_per_semitone", default=1, type=int, help="Bins per semitone")
     parser.add_argument("--annotation_smoothing", default=0.0, type=float, help="Set standard deviation of the gaussian blur for the frame annotations")
     parser.add_argument("--miss_weight", default=1.0, type=float, help="Weight for missed frames in the loss function")
+    parser.add_argument("--variable_stride", action='store_true', default=False, help="Variable stride")
+    parser.add_argument("--first_layer_capacity", default=1, type=int, help="Capacity multiplier")
 
     args = parser.parse_args(argv)
 
@@ -161,7 +189,7 @@ def parse_args(argv):
     return args
 
 def construct(args):
-    network = NetworkMelody(threads=args.threads)
+    network = NetworkMelody(args)
 
     with network.session.graph.as_default():
         def preload_fn(aa): return aa.audio.load_resampled_audio(args.samplerate)

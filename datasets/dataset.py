@@ -301,7 +301,7 @@ class AADataset:
 
             annots = len(aa.annotation.times)
             annotation_indices = np.arange(0, annots, self.annotations_per_window, dtype=np.int32)
-            aa_indices = np.full((annots,), aa_index, dtype=np.int32)
+            aa_indices = np.full((len(annotation_indices),), aa_index, dtype=np.int32)
 
             indices.append(np.stack((aa_indices, annotation_indices), axis=-1))
         indices = np.concatenate(indices)
@@ -329,6 +329,9 @@ class AADataset:
         for output, shape in zip(outputs, output_shapes):
             output.set_shape(shape)
         return outputs
+    
+    def is_example_voiced(self, window, annotations, times, audio_uid):
+        return tf.equal(tf.count_nonzero(tf.equal(annotations, 0)), 0)
     
     @property
     def total_duration(self):
