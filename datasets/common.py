@@ -1,4 +1,6 @@
-from .dataset import AnnotatedAudio, Audio, Annotation, AADataset
+from .annotatedaudio import AnnotatedAudio
+from .annotation import Annotation
+from .audio import Audio
 
 import numpy as np
 import mir_eval
@@ -9,7 +11,6 @@ import warnings
 from collections import namedtuple
 
 Track = namedtuple("Track", ("audio_path", "annot_path", "uid"))
-
 
 def melody_dataset_generator(dataset_audio_path, dataset_annot_path, audio_suffix=".wav", annot_suffix=".csv"):
     uids = [os.path.basename(f)[:-len(audio_suffix)] for f in sorted(glob(os.path.join(dataset_audio_path, "*"+audio_suffix)))]

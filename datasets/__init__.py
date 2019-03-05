@@ -1,4 +1,7 @@
-from .dataset import AnnotatedAudio, Audio, Annotation, AADataset
+from .annotatedaudio import AnnotatedAudio
+from .annotation import Annotation
+from .dataset import AADataset
+from .audio import Audio
 from . import common
 from . import adc2004
 from . import mirex05
