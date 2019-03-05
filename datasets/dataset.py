@@ -99,6 +99,9 @@ class Audio:
 
         last_sample_index = self.samples_count - 1
 
+        if start_sample > last_sample_index:
+            return np.zeros(end_sample-start_sample, dtype=np.int16)
+
         # padding the snippets with zeros when the context reaches outside the audio
         cut_start_diff = 0
         cut_end_diff = 0
@@ -270,7 +273,7 @@ class Annotation:
         return Annotation(sliced_times, sliced_freqs, sliced_notes, sliced_voicing)
 
 class AADataset:
-    def __init__(self, _annotated_audios, args, dataset_transform=None, shuffle=False):
+    def __init__(self, _annotated_audios, args, dataset_transform=None, shuffle=False, hop_size=None):
         self._annotated_audios = _annotated_audios
 
         # self.frame_width = int(np.round(aa.annotation.get_frame_width()*self.samplerate))
@@ -278,6 +281,7 @@ class AADataset:
 
         self.context_width = args.context_width
         self.annotations_per_window = args.annotations_per_window
+        self.hop_size = hop_size if hop_size is not None else self.annotations_per_window
         # todo: přejmenovat na window_width?
         self.inner_window_size = self.annotations_per_window*self.frame_width
         self.window_size = self.inner_window_size + 2*self.context_width
@@ -299,8 +303,8 @@ class AADataset:
             if self.window_size > aa.audio.samples_count:
                 raise RuntimeError("Window size is bigger than the audio.")
 
-            annots = len(aa.annotation.times)
-            annotation_indices = np.arange(0, annots, self.annotations_per_window, dtype=np.int32)
+            annot_length = len(aa.annotation.times)
+            annotation_indices = np.arange(0, annot_length, self.annotations_per_window, dtype=np.int32)
             aa_indices = np.full((len(annotation_indices),), aa_index, dtype=np.int32)
 
             indices.append(np.stack((aa_indices, annotation_indices), axis=-1))

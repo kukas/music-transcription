@@ -103,12 +103,12 @@ class Network:
 
             self.summary_writer = tf.summary.FileWriter(self.logdir, graph=self.session.graph, flush_secs=30)
 
-            self.accuracy = None
+            self.raw_pitch_accuracy = None
             self.summaries = None
 
             self._summaries(args)
 
-            assert self.accuracy is not None
+            assert self.raw_pitch_accuracy is not None
             assert self.summaries is not None
 
             # save the model function for easier reproducibility
@@ -223,10 +223,11 @@ class Network:
             est_notes = np.concatenate(notes[uid])
 
             # if there is padding at the end of the estimation, cut it
-            zeros = np.where(est_time == 0)[0]
-            if len(zeros) > 1:
-                est_time = est_time[:zeros[1]]
-                est_notes = est_notes[:zeros[1]]
+            # ignore the first zero time
+            zeros = np.where(est_time[1:] == 0)[0] + 1
+            if len(zeros) > 0:
+                est_time = est_time[:zeros[0]]
+                est_notes = est_notes[:zeros[0]]
 
             est_freq = datasets.common.midi_to_hz_safe(est_notes)
             estimations[uid] = (est_time, est_freq)

@@ -118,6 +118,10 @@ class MetricsHook(EvaluationHook):
         ref_time = aa.annotation.times
         ref_freq = np.squeeze(aa.annotation.freqs, 1)
 
+        assert len(ref_time) == len(est_time)
+        assert len(ref_freq) == len(est_freq)
+        assert len(ref_freq) == len(est_freq)
+
         metrics = mir_eval.melody.evaluate(ref_time, ref_freq, est_time, est_freq)
 
         ref_v = ref_freq > 0

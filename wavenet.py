@@ -135,6 +135,7 @@ def parse_args(argv):
     parser.add_argument("--threads", default=4, type=int, help="Maximum number of threads to use.")
     parser.add_argument("--batch_size", default=32, type=int, help="Number of examples in one batch")
     parser.add_argument("--annotations_per_window", default=1, type=int, help="Number of annotations in one example.")
+    parser.add_argument("--hop_size", default=None, type=int, help="Hop of the input window specified in number of annotations. Defaults to annotations_per_window")
     parser.add_argument("--frame_width", default=round(256/(44100/16000)), type=int, help="Number of samples per annotation = hop size.")
     parser.add_argument("--context_width", default=int(np.ceil((2048-93)/2)), type=int, help="Number of context samples on both sides of the example window.")
     parser.add_argument("--note_range", default=128, type=int, help="Note range.")
@@ -155,7 +156,7 @@ def parse_args(argv):
     parser.add_argument("--annotation_smoothing", default=0.0, type=float, help="Set standard deviation of the gaussian blur for the frame annotations")
     parser.add_argument("--miss_weight", default=1.0, type=float, help="Weight for missed frames in the loss function")
     parser.add_argument("--initial_filter_width", default=32, type=int, help="First conv layer filter width")
-    parser.add_argument("--filter_width", default=3, type=int, help="Dilation stack filter width (2 or 3, othe)")
+    parser.add_argument("--filter_width", default=3, type=int, help="Dilation stack filter width (2 or 3)")
     parser.add_argument("--use_biases", action='store_true', default=False, help="Use biases in the convolutions")
     parser.add_argument("--skip_channels", default=64, type=int, help="Skip channels")
     parser.add_argument("--residual_channels", default=32, type=int, help="Residual channels")
@@ -174,7 +175,8 @@ def construct(args):
     network = NetworkMelody(args)
 
     with network.session.graph.as_default():
-        def preload_fn(aa): return aa.audio.load_resampled_audio(args.samplerate)
+        def preload_fn(aa):
+            aa.audio.load_resampled_audio(args.samplerate)
 
         def dataset_transform(tf_dataset, dataset):
             return tf_dataset.map(dataset.prepare_example, num_parallel_calls=4).batch(args.batch_size).prefetch(1)

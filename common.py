@@ -129,7 +129,8 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
         test_datasets.append(VD(datasets.mirex05.prefix, mirex05_test_dataset, 0, test_hooks))
 
     if train_data:
-        train_dataset = datasets.AADataset(train_data, args, dataset_transform_train, shuffle=True)
+        hop_size = args.hop_size if args.hop_size is not None else None
+        train_dataset = datasets.AADataset(train_data, args, dataset_transform_train, shuffle=True, hop_size=hop_size)
     else:
         # Return at least one dataset as training, since its parameters are used in network initialization
         train_dataset = (test_datasets+validation_datasets)[0].dataset
