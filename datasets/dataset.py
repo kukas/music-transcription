@@ -56,10 +56,14 @@ class AADataset:
 
         self.dataset = index_dataset if dataset_transform is None else index_dataset.apply(lambda tf_dataset: dataset_transform(tf_dataset, self))
 
-        print("dataset duration:", self.total_duration)
+        print("dataset id:", _annotated_audios[0].audio.uid.split("_")[0])
+        print("dataset duration: {:.2f} minutes".format(self.total_duration/60))
         print("dataset examples:", self.total_examples)
         self.max_polyphony = np.max([aa.annotation.max_polyphony for aa in self._annotated_audios])
         print("max. polyphony:", self.max_polyphony)
+        if self.annotations_per_window != self.hop_size:
+            print("using hop_size", self.hop_size)
+        print()
 
     def prepare_example(self, aa_index_op, annotation_index_op):
         output_types, output_shapes = zip(*[

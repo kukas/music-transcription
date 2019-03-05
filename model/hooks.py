@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 import os
 import csv
-
+import time
 mir_eval.multipitch.MIN_FREQ = 1
 
 
@@ -104,16 +104,19 @@ class MetricsHook(EvaluationHook):
         self.write_estimations = write_estimations
 
     def before_run(self, ctx, vd):
+        self.write_estimations_timer = 0
         self.all_metrics = []
         return [ctx.loss]
 
     def every_aa(self, ctx, vd, aa, est_time, est_freq):
         if self.write_estimations:
+            timer = time.time()
             est_dir = os.path.join(ctx.logdir, ctx.args.checkpoint+"-f0-outputs", vd.name+"-test-melody-outputs")
             os.makedirs(est_dir, exist_ok=True)
             with open(os.path.join(est_dir, aa.audio.filename+".csv"), 'w') as f:
                 writer = csv.writer(f)
                 writer.writerows(zip(est_time, est_freq))
+            self.write_estimations_timer += time.time()-timer
 
         ref_time = aa.annotation.times
         ref_freq = np.squeeze(aa.annotation.freqs, 1)
@@ -158,6 +161,8 @@ class MetricsHook(EvaluationHook):
 
     def after_run(self, ctx, vd, additional):
         self._save_metrics(ctx, vd, additional)
+        if self.write_estimations:
+            print("csv outputs written in {:.2f}s".format(self.write_estimations_timer))
         print("{}: {}".format(vd.name, self._title(ctx)))
 
 

@@ -270,6 +270,14 @@ class Network:
         text = tf.convert_to_tensor([[str(k), str(v)] for k, v in vars(args).items()])
         self.summary_writer.add_summary(self.session.run(tf.summary.text("hyperparameters", text)))
 
+        text = tf.convert_to_tensor([["trainable_parameter_count", str(self.trainable_parameter_count)],
+                                     ["window_size", str(self.window_size)],
+                                     ["bin_count", str(self.bin_count)]])
+        self.summary_writer.add_summary(self.session.run(tf.summary.text("model_info", text)))
+
+        text = tf.convert_to_tensor(" ".join(sys.argv[:]))
+        self.summary_writer.add_summary(self.session.run(tf.summary.text("run_command", text)))
+
     def save(self, name="model"):
         save_path = os.path.join(self.logdir, name+".ckpt")
         save_path = self.saver.save(self.session, save_path)
