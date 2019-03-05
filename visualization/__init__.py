@@ -163,6 +163,8 @@ def draw_hists(ref, est):
     diff = est_note - ref_note
 
     fig, axs = plt.subplots(2, 1, figsize=(15, 6))
+    axs[0].grid(True, axis="y", zorder=0)
+    axs[1].grid(True, zorder=0)
     axs[0].set_title("histogram of estimation distances from ground truth")
     axs[0].set_xlabel("distance in semitones")
     axs[0].set_ylabel("number of notes")
@@ -171,7 +173,7 @@ def draw_hists(ref, est):
     bins = bins-0.5
     # ignore the correct estimation bin
     diff = diff[np.abs(diff) > 0.5]
-    axs[0].hist(diff, bins=bins)
+    axs[0].hist(diff, bins=bins, zorder=3)
 
     correct_notes = np.zeros([128])
     total_notes = np.zeros([128]) + 0.00001  # divide by zero fix
@@ -185,7 +187,7 @@ def draw_hists(ref, est):
     axs[1].set_title("pitch accuracy for every note class")
     axs[1].set_xlabel("midi note")
     axs[1].set_ylabel("accuracy")
-    axs[1].plot(correct_notes/total_notes)
+    axs[1].plot(correct_notes/total_notes, zorder=3)
 
     plt.tight_layout()
 
