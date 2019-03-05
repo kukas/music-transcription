@@ -101,12 +101,12 @@ def create_model(self, args):
     probs_around_peak = self.note_probabilities*peak_est
     self.est_notes = tf.reduce_sum(note_bins * probs_around_peak, axis=2)/tf.reduce_sum(probs_around_peak, axis=2)
 
-    reg_variables = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-    l2_loss = tf.reduce_sum(tf.constant(args.l2_loss_weight)*reg_variables)
-    tf.summary.scalar('train/l2_loss', l2_loss)
-
-    tf.summary.scalar('train/ce_loss', self.loss)
-    self.loss += l2_loss
+    if args.l2_loss_weight > 0:
+        reg_variables = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+        l2_loss = tf.reduce_sum(tf.constant(args.l2_loss_weight)*reg_variables)
+        tf.summary.scalar('metrics/train/l2_loss', l2_loss)
+        tf.summary.scalar('metrics/train/ce_loss', self.loss)
+        self.loss += l2_loss
 
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     with tf.control_dependencies(update_ops):                                                            
@@ -137,12 +137,12 @@ def parse_args(argv):
     parser.add_argument("--annotations_per_window", default=1, type=int, help="Number of annotations in one example.")
     parser.add_argument("--hop_size", default=None, type=int, help="Hop of the input window specified in number of annotations. Defaults to annotations_per_window")
     parser.add_argument("--frame_width", default=round(256/(44100/16000)), type=int, help="Number of samples per annotation = hop size.")
-    parser.add_argument("--context_width", default=int(np.ceil((2048-93)/2)), type=int, help="Number of context samples on both sides of the example window.")
+    parser.add_argument("--context_width", default=0, type=int, help="Number of context samples on both sides of the example window.")
     parser.add_argument("--note_range", default=128, type=int, help="Note range.")
     parser.add_argument("--samplerate", default=16000, type=int, help="Audio samplerate used in the model, resampling is done automatically.")
     parser.add_argument("--logdir", default=None, type=str, help="Path to model directory.")
     parser.add_argument("--checkpoint", default="model", type=str, help="Checkpoint name.")
-    parser.add_argument("--evaluate", action='store_true', help="Only evaluate.")
+    parser.add_argument("--evaluate", action='store_true', help="Evaluate after training. If an existing checkpoint is specified, it will be evaluated only.")
     parser.add_argument("--full_trace", action='store_true', help="Profile Tensorflow session.")
     parser.add_argument("--debug_memory_leaks", action='store_true', help="Debug memory leaks.")
     parser.add_argument("--cpu", action='store_true', help="Disable GPU.")
@@ -197,13 +197,19 @@ def main(argv):
     # Construct the network
     network, train_dataset, validation_datasets, test_datasets = construct(args)
     
+    if not (args.evaluate and network.restored):
+        try:
+            network.train(train_dataset, args.epochs, validation_datasets, save_every_n_batches=10000)
+            network.save()
+        except KeyboardInterrupt:
+            network.save()
+            sys.exit()
+
     if args.evaluate:
         for vd in test_datasets:
             print("{} evaluation".format(vd.name))
             network.evaluate(vd)
-    else:
-        network.train(train_dataset, args.epochs, validation_datasets, save_every_n_batches=10000)
-        network.save()
+
 
 if __name__ == "__main__":
     main(sys.argv[1:])
