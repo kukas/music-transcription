@@ -77,6 +77,10 @@ class Network:
 
             self.global_step = tf.train.create_global_step()
 
+            batch_size = tf.shape(self.annotations)[0]
+            self.note_bins = tf.range(0, self.note_range, 1/self.bins_per_semitone, dtype=tf.float32)
+            self.note_bins = tf.reshape(tf.tile(self.note_bins, [batch_size * self.annotations_per_window]), [batch_size, self.annotations_per_window, self.bin_count])
+
             # lowpriority TODO: použít booleanmask, abych pak nemusel odstraňovat ty nulové anotace
             # self.ref_notes_sparse = tf.reduce_sum(tf.one_hot(self.annotations, self.note_range), axis=2)
             # sometimes there are identical notes in annotations (played by two different instruments)
