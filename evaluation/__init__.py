@@ -22,49 +22,58 @@ def get_dataset_list():
     return [
         (
             datasets.orchset.prefix,
+            "test",
             "ORCHSET",
             list(datasets.orchset.generator(join(modulepath, "../data/Orchset")))
             ),
         (
             datasets.adc2004.prefix,
+            "test",
             "ADC04",
             list(datasets.adc2004.generator(join(modulepath, "../data/adc2004")))
             ),
         (
             datasets.mirex05.prefix,
+            "test",
             "MIREX05",
             list(datasets.mirex05.generator(join(modulepath, "../data/mirex05")))
             ),
         (
             datasets.mdb_melody_synth.prefix,
+            "test",
             "MDB-mel-s.",
             list(filter(lambda x: x.uid in mdb_split["test"], datasets.mdb_melody_synth.generator(join(modulepath, "../data/MDB-melody-synth"))))
             ),
         (
             datasets.medleydb.prefix,
+            "test",
             "MedleyDB",
             list(filter(lambda x: x.uid in mdb_split["test"], datasets.medleydb.generator(join(modulepath, "../data/MedleyDB/MedleyDB"))))
             ),
         (
             datasets.wjazzd.prefix,
+            "test",
             "WJazzD",
             list(filter(lambda x: x.uid in wjazzd_split["test"], datasets.wjazzd.generator(join(modulepath, "../data/WJazzD"))))
             ),
         (
             datasets.mdb_melody_synth.prefix,
+            "valid",
             "MDB-mel-s. valid.",
             list(filter(lambda x: x.uid in mdb_split["validation"], datasets.mdb_melody_synth.generator(join(modulepath, "../data/MDB-melody-synth"))))
         ),
         (
             datasets.medleydb.prefix,
+            "valid",
             "MedleyDB valid.",
             list(filter(lambda x: x.uid in mdb_split["validation"], datasets.medleydb.generator(join(modulepath, "../data/MedleyDB/MedleyDB"))))
         ),
         (
             datasets.wjazzd.prefix,
+            "valid",
             "WJazzD valid.",
             list(filter(lambda x: x.uid in wjazzd_split["validation"], datasets.wjazzd.generator(join(modulepath, "../data/WJazzD"))))
-            ),
+        ),
     ]
 
 def evaluate_dataset_melody(refs, ests, per_track_info=False):
@@ -101,9 +110,9 @@ def evaluate_dataset_melody(refs, ests, per_track_info=False):
     return all_scores
 
 def results(method, path, est_suffix=".csv"):
-    results = {}
+    results = []
     # Iterates through the datasets
-    for (prefix, dataset_name, dataset_iterator) in get_dataset_list():
+    for (prefix, split, dataset_name, dataset_iterator) in get_dataset_list():
         # List of the paths to reference annotations
         annot_paths = map(lambda x: x.annot_path, dataset_iterator)
         audio_names = map(lambda x: os.path.splitext(os.path.basename(x.audio_path))[0], dataset_iterator)
@@ -113,34 +122,25 @@ def results(method, path, est_suffix=".csv"):
             # List of the paths to estimation annotations
             est_paths = [join(path, ests_dir, name+est_suffix) for name in audio_names]
 
-            result = evaluate_dataset_melody(annot_paths, est_paths)
-            if result:
-                results[dataset_name] = result
-    return results
+            est_last_access = max(os.path.getmtime(path) for path in est_paths)
+            saved_results_path = join(path, "eval-{}_{}-{}.pkl".format(prefix, split, est_last_access))
+            if os.path.exists(saved_results_path):
+                result = pandas.read_pickle(saved_results_path)
+                results.append(result)
+            else:
+                result = evaluate_dataset_melody(annot_paths, est_paths)
+                if result:
+                    result = pandas.DataFrame(result)
+                    result["Prefix"] = prefix
+                    result["Split"] = split
+                    result["Dataset"] = dataset_name
+                    results.append(result)
+
+                    result.to_pickle(saved_results_path)
+    if not results:
+        return pandas.DataFrame()
+    return pandas.concat(results)
 
 def summary(method, path, est_suffix=".csv"):
-    res = results(method, path, est_suffix)
-    summarized = {k: pandas.DataFrame(v).mean() for k, v in res.items()}
-    return pandas.DataFrame(summarized)
-
-def evaluate_model(network, model_name):
-    path = model_name+"-f0-outputs"
-    if not os.path.exists(path):
-        os.mkdir(path)
-    # Iterates through the datasets
-    for (prefix, dataset_name, dataset_iterator) in get_dataset_list():
-        audios = map(lambda x: datasets.Track(x.audio_path, None, x.uid), dataset_iterator)
-
-        ests_dir = join(path, "{}-{}-melody-outputs".format(prefix, model_name))
-        if not os.path.exists(ests_dir):
-            os.mkdir(ests_dir)
-
-        print("evaluating", dataset_name)
-        estimations = network.predict(audios, name=prefix)
-        for uid, (est_time, est_freq) in estimations.items():
-            with open(join(ests_dir, uid+".csv"), "w") as csvfile:
-                writer = csv.writer(csvfile)
-                writer.writerows(list(zip(est_time, est_freq)))
-
-    return summary(model_name, path)
-
+    data = results(method, path, est_suffix)
+    return data.groupby(["Dataset"]).mean().transpose()
