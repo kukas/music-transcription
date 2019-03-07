@@ -34,18 +34,19 @@ class EvaluationHook:
         pass
 
     def _title(self, ctx):
-        return "OA: {:.2f}, RPA: {:.2f}, RCA: {:.2f}, VR: {:.2f}, VFA: {:.2f}".format(
+        return "OA: {:.3f}, RPA: {:.3f}, RCA: {:.3f}, VR: {:.3f}, VFA: {:.3f}, Loss {:.4f}".format(
             ctx.metrics['Overall Accuracy'],
             ctx.metrics['Raw Pitch Accuracy'],
             ctx.metrics['Raw Chroma Accuracy'],
             ctx.metrics['Voicing Recall'],
-            ctx.metrics['Voicing False Alarm']
+            ctx.metrics['Voicing False Alarm'],
+            ctx.metrics['Loss']
         )
 
 
 class EvaluationHook_mf0:
     def _title(self, ctx):
-        return "Acc: {:.2f}, Pr: {:.2f}, Re: {:.2f}, Sub: {:.2f}".format(
+        return "Acc: {:.3f}, Pr: {:.3f}, Re: {:.3f}, Sub: {:.3f}".format(
             ctx.metrics['Accuracy'],
             ctx.metrics['Precision'],
             ctx.metrics['Recall'],
