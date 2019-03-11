@@ -49,6 +49,8 @@ class Audio:
         self.samples_count = len(self.samples)
         self.samplerate = samplerate
 
+        return self
+
     def load_spectrogram(self, spec_function, spec_function_thumbprint, hop_size):
         self.spectrogram_hop_size = hop_size
 

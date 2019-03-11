@@ -260,6 +260,16 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
         mirex05_test_dataset = datasets.AADataset(mirex05_test, args, dataset_transform)
         test_datasets.append(VD(datasets.mirex05.prefix, mirex05_test_dataset, 0, test_hooks))
 
+    if "fairerhopes" in which:
+        harfa_audio = datasets.Audio("/mnt/tera/jirka/V1/MatthewEntwistle_FairerHopes/MatthewEntwistle_FairerHopes_STEMS/MatthewEntwistle_FairerHopes_STEM_10.wav",
+                    "augment_low")
+        harfa_annot = datasets.Annotation.from_time_series("data/MatthewEntwistle_FairerHopes_STEM_10_clean.csv", "fairerhopes")
+        harfa = datasets.AnnotatedAudio(harfa_annot, harfa_audio)
+        preload_fn(harfa)
+        # harfa.audio.samples *= 5
+        mirex05_test_dataset = datasets.AADataset([harfa], args, dataset_transform)
+        test_datasets.append(VD("fairerhopes", mirex05_test_dataset, 0, test_hooks))
+
     if train_data:
         hop_size = args.hop_size if args.hop_size is not None else None
         train_dataset = datasets.AADataset(train_data, args, dataset_transform_train, shuffle=True, hop_size=hop_size)

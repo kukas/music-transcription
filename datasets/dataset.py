@@ -77,8 +77,27 @@ class AADataset:
             output.set_shape(shape)
         return outputs
     
-    def is_example_voiced(self, window, annotations, times, audio_uid):
-        return tf.equal(tf.count_nonzero(tf.equal(annotations, 0)), 0)
+    def is_example_voiced(self, window_op, annotations_op, times_op, audio_uid_op):
+        return tf.equal(tf.count_nonzero(tf.equal(annotations_op, 0)), 0)
+    
+    def mix_example_with(self, audio):
+        def _mix_example(window_op, annotations_op, times_op, audio_uid_op):
+            output_types, output_shapes = zip(*[
+                (tf.int16,   tf.TensorShape([self.window_size])),
+                (tf.float32, tf.TensorShape([self.annotations_per_window, None])),
+                (tf.float32, tf.TensorShape([self.annotations_per_window])),
+                (tf.string,  None),
+            ])
+
+            def mix_with(window, annotations, times, audio_uid):
+                window = (window + audio[:len(window)])//2
+                return (window, annotations, times, audio_uid)
+
+            outputs = tf.py_func(mix_with, [window_op, annotations_op, times_op, audio_uid_op], output_types)
+            for output, shape in zip(outputs, output_shapes):
+                output.set_shape(shape)
+            return outputs
+        return _mix_example
     
     @property
     def total_duration(self):
