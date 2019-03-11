@@ -35,6 +35,7 @@ def common_arguments(defaults={}):
     # loading models
     parser.add_argument("--logdir", default=None, type=str, help="Path to model directory.")
     parser.add_argument("--checkpoint", default="model", type=str, help="Checkpoint name.")
+    parser.add_argument("--saver_max_to_keep", default=1, type=int, help="How many checkpoints to keep")
     # debug & system settings
     parser.add_argument("--threads", default=4, type=int, help="Maximum number of threads to use.")
     parser.add_argument("--full_trace", action='store_true', help="Profile Tensorflow session.")

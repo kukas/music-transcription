@@ -84,7 +84,7 @@ def create_model(self, args):
     self.training = common.optimizer(self, args)
 
 def parse_args(argv):
-    parser = common.common_arguments({"context_width": 944})
+    parser = common.common_arguments({"context_width": 978})
     parser.add_argument("--capacity_multiplier", default=16, type=int, help="Capacity multiplier of the model")
     parser.add_argument("--multiresolution_convolution", default=0, type=int, help="Number of different resolution of the first convolution layer")
     parser.add_argument("--variable_stride", action='store_true', default=False, help="Variable stride")

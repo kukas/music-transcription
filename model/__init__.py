@@ -105,7 +105,7 @@ class Network:
             assert self.loss is not None
             assert self.training is not None
 
-            self.saver = tf.train.Saver()
+            self.saver = tf.train.Saver(max_to_keep=args.saver_max_to_keep)
 
             self.summary_writer = tf.summary.FileWriter(self.logdir, graph=self.session.graph, flush_secs=30)
 
@@ -296,8 +296,10 @@ class Network:
         self.summary_writer.add_summary(self.session.run(tf.summary.text("run_command", text)))
 
     def save(self, name="model"):
+        step = tf.train.global_step(self.session, self.global_step)
+
         save_path = os.path.join(self.logdir, name+".ckpt")
-        save_path = self.saver.save(self.session, save_path)
+        save_path = self.saver.save(self.session, save_path, global_step=step)
         print("Model saved in path:", save_path)
 
     def restore(self, name="model"):
