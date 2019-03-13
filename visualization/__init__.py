@@ -168,6 +168,10 @@ def draw_hists(ref, est):
     axs[0].set_title("histogram of estimation distances from ground truth")
     axs[0].set_xlabel("distance in semitones")
     axs[0].set_ylabel("number of notes")
+
+    # set for MedleyDB, TODO: more general setting
+    axs[0].set_ylim(0, 15000)
+
     bins = np.arange(-24, 25)
     axs[0].set_xticks(bins)
     bins = bins-0.5
@@ -187,7 +191,8 @@ def draw_hists(ref, est):
     axs[1].set_title("pitch accuracy for every note class")
     axs[1].set_xlabel("midi note")
     axs[1].set_ylabel("accuracy")
-    axs[1].plot(correct_notes/total_notes, zorder=3)
+    axs[1].set_ylim(0, 1)
+    axs[1].bar(np.arange(len(correct_notes)), correct_notes/total_notes, zorder=3)
 
     plt.tight_layout()
 

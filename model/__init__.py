@@ -150,6 +150,10 @@ class Network:
         # self.session.graph.finalize()
 
         b = tf.train.global_step(self.session, self.global_step)
+        if self.args.rewind:
+            for i in range(b):
+                self.session.run(self.iterator.get_next(), {self.handle: train_iterator_handle})
+
         timer = time.time()
         for i in range(epochs):
             self.session.run(train_iterator.initializer)

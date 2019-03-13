@@ -11,7 +11,7 @@ from model import VD, VisualOutputHook, MetricsHook, MetricsHook_mf0, VisualOutp
 
 def name(args, prefix=""):
     if args.logdir is None:
-        filtered = ["logdir", "checkpoint", "threads", "full_trace", "debug_memory_leaks", "cpu", "evaluate", "epochs", "batch_size_evaluation", "note_range"]
+        filtered = ["logdir", "checkpoint", "saver_max_to_keep", "threads", "full_trace", "debug_memory_leaks", "cpu" ,"rewind", "evaluate", "epochs", "batch_size_evaluation", "note_range"]
         name = "{}-{}".format(datetime.datetime.now().strftime("%m%d_%H%M%S"), prefix)
         for k, v in vars(args).items():
             if k not in filtered:
@@ -42,6 +42,7 @@ def common_arguments(defaults={}):
     parser.add_argument("--debug_memory_leaks", action='store_true', help="Debug memory leaks.")
     parser.add_argument("--cpu", action='store_true', help="Disable GPU.")
     # training settings
+    parser.add_argument("--rewind", action='store_true', help="Rewind back to the same point in training.")
     parser.add_argument("--evaluate", action='store_true', help="Evaluate after training. If an existing checkpoint is specified, it will be evaluated only.")
     parser.add_argument("--epochs", default=10, type=int, help="Number of epochs to train for.")
 
