@@ -66,9 +66,10 @@ class Network:
             self.handle = tf.placeholder(tf.string, shape=[])
             self.iterator = tf.data.Iterator.from_string_handle(self.handle, output_types, output_shapes)
 
-            self.window_int16, self.annotations, self.times, self.audio_uid = self.iterator.get_next()
+            self.window_int16, self.spectrogram_uint8, self.annotations, self.times, self.audio_uid = self.iterator.get_next()
 
             self.window = tf.cast(self.window_int16, tf.float32)/32768.0
+            self.spectrogram = tf.cast(self.spectrogram_uint8, tf.float32)/255.0
 
             # if self.spectrogram_shape is not None:
             #     self.spectrogram = tf.placeholder(tf.float32, [None, self.spectrogram_shape[0], self.spectrogram_shape[1]], name="spectrogram")

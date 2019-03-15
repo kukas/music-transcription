@@ -28,7 +28,11 @@ def name(args, prefix=""):
 
 def common_arguments(defaults={}):
     _defaults = {
-        "context_width": 0
+        "annotations_per_window": 1,
+        "hop_size": None,
+        "frame_width": round(256/(44100/16000)),
+        "context_width": 0,
+        "samplerate": 16000,
     }
     defaults = {**_defaults, **defaults}
     parser = argparse.ArgumentParser()
@@ -49,12 +53,12 @@ def common_arguments(defaults={}):
     parser.add_argument("--datasets", default=["mdb"], nargs="+", type=str, help="Datasets to use for this experiment")
     parser.add_argument("--batch_size", default=32, type=int, help="Number of examples in one batch")
     parser.add_argument("--batch_size_evaluation", default=64, type=int, help="Number of examples in one batch for evaluation")
-    parser.add_argument("--annotations_per_window", default=1, type=int, help="Number of annotations in one example.")
-    parser.add_argument("--hop_size", default=None, type=int, help="Hop of the input window specified in number of annotations. Defaults to annotations_per_window")
-    parser.add_argument("--frame_width", default=round(256/(44100/16000)), type=int, help="Number of samples per annotation = hop size.")
+    parser.add_argument("--annotations_per_window", default=defaults["annotations_per_window"], type=int, help="Number of annotations in one example.")
+    parser.add_argument("--hop_size", default=defaults["hop_size"], type=int, help="Hop of the input window specified in number of annotations. Defaults to annotations_per_window")
+    parser.add_argument("--frame_width", default=defaults["frame_width"], type=int, help="Number of samples per annotation = hop size.")
     parser.add_argument("--context_width", default=defaults["context_width"], type=int, help="Number of context samples on both sides of the example window.")
     parser.add_argument("--note_range", default=128, type=int, help="Note range.")
-    parser.add_argument("--samplerate", default=16000, type=int, help="Audio samplerate used in the model, resampling is done automatically.")
+    parser.add_argument("--samplerate", default=defaults["samplerate"], type=int, help="Audio samplerate used in the model, resampling is done automatically.")
     parser.add_argument("--input_normalization", action='store_true', default=True, help="Enable normalizing each input example")
     parser.add_argument("--no_input_normalization", action='store_true', dest='input_normalization', help="Disable normalizing each input example")
     parser.add_argument("--learning_rate", default=0.001, type=float, help="Learning rate")
@@ -293,9 +297,9 @@ def main(argv, construct, parse_args):
     if not (args.evaluate and network.restored):
         try:
             network.train(train_dataset, args.epochs, validation_datasets, save_every_n_batches=10000)
-            network.save()
+            network.save(args.checkpoint)
         except KeyboardInterrupt:
-            network.save()
+            network.save(args.checkpoint)
             sys.exit()
 
     if args.evaluate:
