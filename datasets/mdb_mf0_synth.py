@@ -1,7 +1,7 @@
 import os
 from glob import glob
 
-from .common import melody_dataset_generator, load_melody_dataset
+from .common import melody_dataset_generator, load_melody_dataset, parallel_preload
 from .medleydb import get_split
 
 prefix = "mdb_mf0_synth"
@@ -18,7 +18,7 @@ def dataset(dataset_root):
     return load_melody_dataset(prefix, generator(dataset_root))
 
 
-def prepare(preload_fn):
+def prepare(preload_fn, threads=None):
     medleydb_split = get_split()
 
     def mdb_split(name):
@@ -28,8 +28,7 @@ def prepare(preload_fn):
     train_data = load_melody_dataset(prefix, mdb_split("train"))
     valid_data = load_melody_dataset(prefix, mdb_split("validation"))
 
-    for aa in train_data+valid_data:
-        preload_fn(aa)
+    parallel_preload(preload_fn, train_data+valid_data, threads=threads)
 
     # TODO: choose better small validation
     small_validation_data = [

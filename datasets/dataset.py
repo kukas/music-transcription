@@ -54,6 +54,14 @@ class AADataset:
 
         index_dataset = tf.data.Dataset.from_tensor_slices((indices.T[0], indices.T[1]))
 
+        self.output_types, self.output_shapes = list(zip(*[
+            (tf.int16,   tf.TensorShape([self.window_size])),
+            (tf.uint8,    tf.TensorShape([None, None, None])),
+            (tf.float32, tf.TensorShape([self.annotations_per_window, None])),
+            (tf.float32, tf.TensorShape([self.annotations_per_window])),
+            (tf.string,  None),
+        ]))
+
         self.dataset = index_dataset if dataset_transform is None else index_dataset.apply(lambda tf_dataset: dataset_transform(tf_dataset, self))
 
         print("dataset id:", _annotated_audios[0].audio.uid.split("_")[0])
@@ -66,35 +74,22 @@ class AADataset:
         print()
 
     def prepare_example(self, aa_index_op, annotation_index_op):
-        output_types, output_shapes = zip(*[
-            (tf.int16,   tf.TensorShape([self.window_size])),
-            (tf.float32, tf.TensorShape([self.annotations_per_window, None])),
-            (tf.float32, tf.TensorShape([self.annotations_per_window])),
-            (tf.string,  None),
-        ])
-        outputs = tf.py_func(self._create_example, [aa_index_op, annotation_index_op], output_types)
-        for output, shape in zip(outputs, output_shapes):
+        outputs = tf.py_func(self._create_example, [aa_index_op, annotation_index_op], self.output_types)
+        for output, shape in zip(outputs, self.output_shapes):
             output.set_shape(shape)
         return outputs
     
-    def is_example_voiced(self, window_op, annotations_op, times_op, audio_uid_op):
+    def is_example_voiced(self, window_op, spectrogram_op, annotations_op, times_op, audio_uid_op):
         return tf.equal(tf.count_nonzero(tf.equal(annotations_op, 0)), 0)
     
     def mix_example_with(self, audio):
-        def _mix_example(window_op, annotations_op, times_op, audio_uid_op):
-            output_types, output_shapes = zip(*[
-                (tf.int16,   tf.TensorShape([self.window_size])),
-                (tf.float32, tf.TensorShape([self.annotations_per_window, None])),
-                (tf.float32, tf.TensorShape([self.annotations_per_window])),
-                (tf.string,  None),
-            ])
-
-            def mix_with(window, annotations, times, audio_uid):
+        def _mix_example(window_op, spectrogram_op, annotations_op, times_op, audio_uid_op):
+            def mix_with(window, spectrogram, annotations, times, audio_uid):
                 window = (window + audio[:len(window)])//2
-                return (window, annotations, times, audio_uid)
+                return (window, spectrogram, annotations, times, audio_uid)
 
-            outputs = tf.py_func(mix_with, [window_op, annotations_op, times_op, audio_uid_op], output_types)
-            for output, shape in zip(outputs, output_shapes):
+            outputs = tf.py_func(mix_with, [window_op, annotations_op, times_op, audio_uid_op], self.output_types)
+            for output, shape in zip(outputs, self.output_shapes):
                 output.set_shape(shape)
             return outputs
         return _mix_example
@@ -127,7 +122,10 @@ class AADataset:
         window_start_sample = np.floor(times[0]*self.samplerate)
         audio, spectrogram = aa.audio.get_window_at_sample(window_start_sample, self.inner_window_size, self.context_width)
 
-        return (audio, annotations, times, aa.audio.uid)
+        if len(spectrogram.shape) == 2:
+            spectrogram = np.expand_dims(spectrogram, -1)
+
+        return (audio, spectrogram, annotations, times, aa.audio.uid)
 
     def get_annotated_audio_by_uid(self, uid):
         for aa in self._annotated_audios:

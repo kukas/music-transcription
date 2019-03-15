@@ -185,7 +185,7 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
     test_datasets = []
     train_data = []
     if datasets.medleydb.prefix in which:
-        medleydb_train, medleydb_test, medleydb_validation, medleydb_small_validation = datasets.medleydb.prepare(preload_fn)
+        medleydb_train, medleydb_test, medleydb_validation, medleydb_small_validation = datasets.medleydb.prepare(preload_fn, threads=args.threads)
         medleydb_test_dataset = datasets.AADataset(medleydb_test, args, dataset_transform)
         medleydb_validation_dataset = datasets.AADataset(medleydb_validation, args, dataset_transform)
         medleydb_small_validation_dataset = datasets.AADataset(medleydb_small_validation, args, dataset_transform)

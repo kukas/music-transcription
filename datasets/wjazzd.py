@@ -1,6 +1,6 @@
 import os
 import json
-from .common import melody_dataset_generator, load_melody_dataset
+from .common import melody_dataset_generator, load_melody_dataset, parallel_preload
 
 modulepath = os.path.dirname(os.path.abspath(__file__))
 
@@ -23,7 +23,7 @@ def dataset(dataset_root):
     return load_melody_dataset(prefix, generator(dataset_root))
 
 
-def prepare(preload_fn):
+def prepare(preload_fn, threads=None):
     wjazzd_split = get_split()
 
     def wjazzd_gen_split(name):
@@ -34,8 +34,7 @@ def prepare(preload_fn):
     test_data = load_melody_dataset(prefix, wjazzd_gen_split("test"))
     valid_data = load_melody_dataset(prefix, wjazzd_gen_split("validation"))
 
-    for aa in train_data+test_data+valid_data:
-        preload_fn(aa)
+    parallel_preload(preload_fn, train_data+test_data+valid_data, threads=threads)
 
     # TODO: choose better small validation
     small_validation_data = [

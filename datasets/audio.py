@@ -27,7 +27,7 @@ class Audio:
         assert self.samples == []
 
         check_dir(PROCESSED_FILES_PATH)
-        resampled_path = os.path.join(PROCESSED_FILES_PATH, self.uid+"_{}.wav".format(samplerate))
+        resampled_path = os.path.join(PROCESSED_FILES_PATH, "{}_{}.wav".format(self.uid, samplerate))
 
         if not os.path.isfile(resampled_path):
             audio, sr_orig = sf.read(self.path)
@@ -42,9 +42,13 @@ class Audio:
                 sf.write(resampled_path, audio_low.astype(np.float32), samplerate)
 
         audio, sr_orig = sf.read(resampled_path, dtype="int16")
+
+        if len(audio.shape) >= 2:  # mono downmixing, if needed
+            audio = np.mean(audio, axis=1, dtype=np.int16)
         self.samples = audio
 
         assert sr_orig == samplerate
+        assert self.samples.dtype == np.int16
 
         self.samples_count = len(self.samples)
         self.samplerate = samplerate
@@ -52,23 +56,27 @@ class Audio:
         return self
 
     def load_spectrogram(self, spec_function, spec_function_thumbprint, hop_size):
+        # Audio needs to be loaded
+        assert self.samples != []
+
         self.spectrogram_hop_size = hop_size
 
         check_dir(PROCESSED_FILES_PATH)
-        spec_path = os.path.join(PROCESSED_FILES_PATH, self.uid+"_{}.npy".format(spec_function_thumbprint))
-
-        # spec_path = self.path.replace(".wav", spec_function_thumbprint+".npy")
-        audio, samplerate = sf.read(self.path)
+        spec_path = os.path.join(PROCESSED_FILES_PATH, "{}_{}.npy".format(self.uid, spec_function_thumbprint))
 
         if os.path.isfile(spec_path):
-            spec = np.load(spec_path)
+            self.spectrogram = np.load(spec_path)
         else:
-            spec = spec_function(audio, samplerate)
-            np.save(spec_path, spec)
+            print("creating spectrogram for", self.uid)
+            samples = self.samples_float
+            self.spectrogram = spec_function(samples, self.samplerate)
+            np.save(spec_path, self.spectrogram)
+            # print("shape", self.spectrogram.shape)
+        return self
 
-        self.spectrogram = spec
-        self.samples_count = len(audio)
-        self.samplerate = samplerate
+    @property
+    def samples_float(self):
+        return self.samples.astype(np.float32, order='C') / 32768.0
 
     def get_duration(self):
         if self.samplerate == 0:
@@ -84,7 +92,7 @@ class Audio:
 
         last_sample_index = self.samples_count - 1
 
-        if start_sample > last_sample_index:
+        if start_sample > last_sample_index or end_sample < 0:
             return np.zeros(end_sample-start_sample, dtype=np.int16)
 
         # padding the snippets with zeros when the context reaches outside the audio
@@ -118,6 +126,9 @@ class Audio:
         cut_end = end_window = cut_start + cut_length
 
         last_window_index = self.spectrogram.shape[1] - 1
+
+        if start_window > last_window_index or end_window < 0:
+            return np.zeros(self.spectrogram.shape[:1]+(end_window-start_window,), dtype=self.spectrogram.dtype)
 
         # padding the snippets with zeros when the context reaches outside the audio
         cut_start_diff = 0
@@ -168,7 +179,3 @@ class Audio:
         b1 = int(window_end_sample+context_width)
 
         return self.get_padded_audio(b0, b1), self.get_padded_spectrogram(b0, b1)
-
-    def iterator(self, inner_window_size, context_width):
-        for sample_index in range(0, self.samples_count, inner_window_size):
-            yield self.get_window_at_sample(sample_index, inner_window_size, context_width)

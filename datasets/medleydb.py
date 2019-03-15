@@ -3,7 +3,7 @@ import mir_eval
 import numpy as np
 import json
 
-from .common import melody_dataset_generator, load_melody_dataset
+from .common import melody_dataset_generator, load_melody_dataset, parallel_preload
 modulepath = os.path.dirname(os.path.abspath(__file__))
 
 prefix = "mdb"
@@ -25,8 +25,7 @@ def generator(dataset_root):
 def dataset(dataset_root):
     return load_melody_dataset(prefix, generator(dataset_root))
 
-
-def prepare(preload_fn):
+def prepare(preload_fn, threads=None):
     medleydb_split = get_split()
 
     def mdb_split(name):
@@ -37,8 +36,7 @@ def prepare(preload_fn):
     test_data = load_melody_dataset(prefix, mdb_split("test"))
     valid_data = load_melody_dataset(prefix, mdb_split("validation"))
 
-    for aa in train_data+test_data+valid_data:
-        preload_fn(aa)
+    parallel_preload(preload_fn, train_data+test_data+valid_data, threads=threads)
 
     # TODO: choose better small validation
     small_validation_data = [
@@ -48,7 +46,6 @@ def prepare(preload_fn):
         test_data[3].slice(3, 7),  # ChrisJacoby_BoothShotLincoln, akustická kytara s kytarovým podkladem
         test_data[6].slice(4, 17),  # Debussy_LenfantProdigue, mužský operní zpěv + klavír
         valid_data[9].slice(15, 21),  # HezekiahJones_BorrowedHeart, souzvuk zpěváka a zpěvačky
-        valid_data[9].slice(32, 36),  # HezekiahJones_BorrowedHeart, souzvuk zpěváka a zpěvačky
         valid_data[0].slice(70, 80),  # AmarLal_Rest, kytary
         valid_data[13].slice(4*60+35, 4*60+45),  # AmarLal_Rest, kytary+perkuse+basová kytara
     ]

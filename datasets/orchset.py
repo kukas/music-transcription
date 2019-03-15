@@ -1,5 +1,5 @@
 import os
-from .common import melody_dataset_generator, load_melody_dataset
+from .common import melody_dataset_generator, load_melody_dataset, parallel_preload
 
 modulepath = os.path.dirname(os.path.abspath(__file__))
 
@@ -17,11 +17,10 @@ def dataset(dataset_root):
     return load_melody_dataset(prefix, generator(dataset_root))
 
 
-def prepare(preload_fn):
+def prepare(preload_fn, threads=None):
     test_data = dataset(os.path.join(modulepath, "..", "data", "Orchset"))
 
-    for aa in test_data:
-        preload_fn(aa)
+    parallel_preload(preload_fn, test_data, threads=threads)
 
     small_validation_data = [
         test_data[41],  # Profofiev-Romeo&Juliet-DanceKnights-ex2, nejdřív melodii drží zeště a smyčce jsou nad nimi, pak jsou zeště doprovod

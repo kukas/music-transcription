@@ -7,6 +7,8 @@ import mir_eval
 import os
 from glob import glob
 import warnings
+from concurrent.futures import ThreadPoolExecutor
+import multiprocessing
 
 from collections import namedtuple
 
@@ -45,6 +47,13 @@ def load_melody_dataset(name, dataset_iterator):
 
     return annotated_audios
 
+
+def parallel_preload(preload_fn, preload_data, threads=None):
+    if threads is None:
+        threads = multiprocessing.cpu_count()
+
+    with ThreadPoolExecutor(max_workers=threads) as executor:
+        executor.map(preload_fn, preload_data)
 
 def melody_to_multif0(values):
     return [np.array([]) if x == 0 else np.array([x]) for x in values]
