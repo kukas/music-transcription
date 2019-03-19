@@ -199,5 +199,5 @@ class SaveBestModelHook(EvaluationHook):
         if value > self.best_value:
             self.best_value = value
             print("Saving best model, best value = {:.2f}".format(value))
-            ctx.save(self.model_name)
+            ctx.save(self.model_name, ctx.saver_best)
             ctx.metrics.to_csv(best_metrics_csv)

@@ -56,9 +56,9 @@ class AADataset:
 
         self.output_types, self.output_shapes = list(zip(*[
             (tf.int16,   tf.TensorShape([self.window_size])),
-            (tf.uint8,    tf.TensorShape([None, None, None])),
+            (tf.uint16,    tf.TensorShape([None, None, None])),
             (tf.float32, tf.TensorShape([self.annotations_per_window, None])),
-            (tf.float32, tf.TensorShape([self.annotations_per_window])),
+            (tf.float64, tf.TensorShape([self.annotations_per_window])),
             (tf.string,  None),
         ]))
 
@@ -119,12 +119,12 @@ class AADataset:
             times = np.pad(times, (0, len_diff), "constant")
             annotations = np.pad(annotations, ((0, len_diff),(0,0)), "constant")
 
-        window_start_sample = np.floor(times[0]*self.samplerate)
+        window_start_sample = int(np.round(times[0]*self.samplerate))
         audio, spectrogram = aa.audio.get_window_at_sample(window_start_sample, self.inner_window_size, self.context_width)
 
         if len(spectrogram.shape) == 2:
             spectrogram = np.expand_dims(spectrogram, -1)
-
+        
         return (audio, spectrogram, annotations, times, aa.audio.uid)
 
     def get_annotated_audio_by_uid(self, uid):

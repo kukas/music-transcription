@@ -21,46 +21,47 @@ BINS_PER_OCTAVE = 60
 N_BINS = BINS_PER_OCTAVE*6
 
 def create_model(self, args):
-    # window = self.window
-    # window = common.input_normalization(window, args)
-    # window_with_channel = tf.expand_dims(window, axis=2)
-
-    layer_confs = [
-        (128, (5, 5), tf.nn.relu),
-        (64, (5, 5), tf.nn.relu),
-        (64, (3, 3), tf.nn.relu),
-        (64, (3, 3), tf.nn.relu),
-        (8, (3, 70), tf.nn.relu),
-        (1, (1, 1), None),
-    ]
-
-    self.spectrogram.set_shape([None, len(HARMONICS), N_BINS, args.annotations_per_window])
+    self.spectrogram.set_shape([None, len(HARMONICS), N_BINS, args.annotations_per_window + 2*args.context_width/HOP_LENGTH])
+    
     spectrogram = self.spectrogram
     spectrogram = tf.transpose(spectrogram, [0, 3, 2, 1])
 
     print(spectrogram.shape)
     layer = spectrogram
 
-    # tf.summary.image("spectrogram", spectrogram)
-    # layer = layer + 0.001*layer*tf.sigmoid(tf.Variable(1.0))
-    # layer = tf.layers.conv2d(layer, 1, (1, 1), (1, 1), "same", activation=None)
-
-    with tf.name_scope('model'):
-        # layer = tf.layers.batch_normalization(layer, training=self.is_training)
-        for filters, kernel_size, activation in layer_confs:
-            layer = tf.layers.batch_normalization(layer, training=self.is_training)
-            layer = tf.layers.conv2d(layer, filters, kernel_size, (1, 1), "same", activation=activation, use_bias=False)
-            # if activation is not None:
-            #     layer = activation(layer)
-
+    # layer = tf.pad(layer, ((0, 0), (0, 0), (41, 41), (0, 0)))
     print(layer.shape)
 
-    # bottom_padding = int(librosa.core.hz_to_midi(FMIN) * args.bins_per_semitone) - args.min_note*args.bins_per_semitone
-    # top_padding = int(self.bin_count - N_BINS - bottom_padding)
+    with tf.name_scope('model'):
+        layer = tf.layers.batch_normalization(layer, training=self.is_training)
+        layer = tf.layers.conv2d(layer, 64, (5, 5), (1, 1), "same", activation=tf.nn.relu, use_bias=False)
+        residual = layer
+        layer = tf.layers.batch_normalization(layer, training=self.is_training)
+        layer = tf.layers.conv2d(layer, 64, (5, 5), (1, 1), "same", activation=tf.nn.relu, use_bias=False)
+        residual += layer
+        layer = tf.layers.batch_normalization(layer, training=self.is_training)
+        layer = tf.layers.conv2d(layer, 64, (3, 3), (1, 1), "same", activation=tf.nn.relu, use_bias=False)
+        residual += layer
+        layer = tf.layers.batch_normalization(layer, training=self.is_training)
+        layer = tf.layers.conv2d(layer, 64, (3, 3), (1, 1), "same", activation=tf.nn.relu, use_bias=False)
+        residual += layer
+        # layer3 = tf.layers.conv2d(layer_1, 64, (3, 1), (1, 1), "same", activation=tf.nn.relu, use_bias=False, dilation_rate=2)
+        # layer3 = tf.layers.conv2d(layer_3, 64, (3, 1), (1, 1), "same", activation=tf.nn.relu, use_bias=False, dilation_rate=4)
+        # layer3 = tf.layers.conv2d(layer_3, 64, (3, 1), (1, 1), "same", activation=tf.nn.relu, use_bias=False, dilation_rate=8)
+        # layer3 = tf.layers.conv2d(layer_3, 64, (3, 1), (1, 1), "same", activation=tf.nn.relu, use_bias=False, dilation_rate=16)
+        # conv_gate = tf.layers.conv2d(layer_3)
+        # layer3_out = layer3 * tf.sigmoid(conv_gate)
 
-    # print("paddings:", bottom_padding, top_padding)
+        layer = tf.layers.batch_normalization(layer, training=self.is_training)
+        layer = tf.layers.conv2d(layer, 64, (3, 70), (1, 1), "same", activation=tf.nn.relu, use_bias=False)
+        residual += layer
 
-    # layer = tf.pad(layer, ((0, 0), (0, 0), (bottom_padding, top_padding), (0, 0)))
+        print(residual.shape)
+        residual = residual[:, 7:-7, :, :]
+        print(residual.shape)
+
+        layer = tf.layers.batch_normalization(residual, training=self.is_training)
+        layer = tf.layers.conv2d(layer, 1, (1, 1), (1, 1), "same", activation=None, use_bias=False)
 
     output_layer = tf.squeeze(layer, -1)
     print(output_layer.shape)
@@ -81,7 +82,7 @@ def create_model(self, args):
 
 def parse_args(argv):
     parser = common.common_arguments({
-        "samplerate": 22050, "context_width": 0, "annotations_per_window": 50, "hop_size": 10, "frame_width": 256,
+        "samplerate": 22050, "context_width": 7*HOP_LENGTH, "annotations_per_window": 10, "hop_size": 10, "frame_width": HOP_LENGTH,
         "note_range": 72, "min_note": 24
     })
     # Model specific arguments
@@ -89,7 +90,7 @@ def parse_args(argv):
 
     args = parser.parse_args(argv)
 
-    common.name(args, "bittner_batchnorm")
+    common.name(args, "cqt_resid")
 
     return args
 
@@ -140,11 +141,9 @@ def construct(args):
 
         def dataset_transform(tf_dataset, dataset):
             return tf_dataset.map(dataset.prepare_example, num_parallel_calls=args.threads).batch(args.batch_size_evaluation).prefetch(10)
-            # return tf_dataset.map(dataset.prepare_example).batch(args.batch_size_evaluation)
 
         def dataset_transform_train(tf_dataset, dataset):
             return tf_dataset.shuffle(10**5).map(dataset.prepare_example, num_parallel_calls=args.threads).batch(args.batch_size).prefetch(10)
-            # return tf_dataset.shuffle(10**5).map(dataset.prepare_example).batch(args.batch_size)
 
         train_dataset, test_datasets, validation_datasets = common.prepare_datasets(args.datasets, args, preload_fn, dataset_transform, dataset_transform_train)
 

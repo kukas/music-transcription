@@ -11,7 +11,7 @@ class Annotation:
     def __init__(self, times, freqs=None, notes=None, voicing=None):
         assert not (freqs is None and notes is None)
 
-        self.times = np.array(times, dtype=np.float32)
+        self.times = np.array(times, dtype=np.float64)
         self.freqs = freqs
         self._freqs_mf0 = None
         self.notes = notes
@@ -76,6 +76,21 @@ class Annotation:
         if len(self.times) == 0:
             raise RuntimeError("The annotation is empty.")
         return self.times[1]-self.times[0]
+    
+    def resample(self, hop_size):
+        # TODO: not implemented for multif0
+        assert self.notes.shape[1] == 1
+
+        times_new = np.arange(self.times[0], self.times[-1], hop_size)
+        notes_new, voicing_new = mir_eval.melody.resample_melody_series(self.times, self.notes[:,0], self.voicing, times_new)
+
+        resampled = Annotation(times_new, notes=np.expand_dims(notes_new, axis=-1), voicing=voicing_new)
+        self.times = resampled.times
+        self.freqs = resampled.freqs
+        self.notes = resampled.notes
+        self.voicing = resampled.voicing
+        self._freqs_mf0 = None
+        self._notes_mf0 = None
 
     def slice(self, start, end):
         framerate = 1/self.get_frame_width()

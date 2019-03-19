@@ -33,6 +33,8 @@ def common_arguments(defaults={}):
         "frame_width": round(256/(44100/16000)),
         "context_width": 0,
         "samplerate": 16000,
+        "min_note": 0,
+        "note_range": 128,
     }
     defaults = {**_defaults, **defaults}
     parser = argparse.ArgumentParser()
@@ -49,23 +51,28 @@ def common_arguments(defaults={}):
     parser.add_argument("--rewind", action='store_true', help="Rewind back to the same point in training.")
     parser.add_argument("--evaluate", action='store_true', help="Evaluate after training. If an existing checkpoint is specified, it will be evaluated only.")
     parser.add_argument("--epochs", default=10, type=int, help="Number of epochs to train for.")
-
+    # input
     parser.add_argument("--datasets", default=["mdb"], nargs="+", type=str, help="Datasets to use for this experiment")
     parser.add_argument("--batch_size", default=32, type=int, help="Number of examples in one batch")
     parser.add_argument("--batch_size_evaluation", default=64, type=int, help="Number of examples in one batch for evaluation")
-    parser.add_argument("--annotations_per_window", default=defaults["annotations_per_window"], type=int, help="Number of annotations in one example.")
+    # input window shape
+    parser.add_argument("--samplerate", default=defaults["samplerate"], type=int, help="Audio samplerate used in the model, resampling is done automatically.")
     parser.add_argument("--hop_size", default=defaults["hop_size"], type=int, help="Hop of the input window specified in number of annotations. Defaults to annotations_per_window")
     parser.add_argument("--frame_width", default=defaults["frame_width"], type=int, help="Number of samples per annotation = hop size.")
     parser.add_argument("--context_width", default=defaults["context_width"], type=int, help="Number of context samples on both sides of the example window.")
-    parser.add_argument("--note_range", default=128, type=int, help="Note range.")
-    parser.add_argument("--samplerate", default=defaults["samplerate"], type=int, help="Audio samplerate used in the model, resampling is done automatically.")
     parser.add_argument("--input_normalization", action='store_true', default=True, help="Enable normalizing each input example")
     parser.add_argument("--no_input_normalization", action='store_true', dest='input_normalization', help="Disable normalizing each input example")
+    # output notes shape
+    parser.add_argument("--annotations_per_window", default=defaults["annotations_per_window"], type=int, help="Number of annotations in one example.")
+    parser.add_argument("--min_note", default=defaults["min_note"], type=int, help="First MIDI note number.")
+    parser.add_argument("--note_range", default=defaults["note_range"], type=int, help="Note range.")
+    parser.add_argument("--bins_per_semitone", default=5, type=int, help="Bins per semitone")
+    parser.add_argument("--annotation_smoothing", default=0.25, type=float, help="Set standard deviation of the gaussian blur for the frame annotations")
+
+    # learning parameters
     parser.add_argument("--learning_rate", default=0.001, type=float, help="Learning rate")
     parser.add_argument("--clip_gradients", default=0.0, type=float, help="Clip gradients by global norm")
     parser.add_argument("--l2_loss_weight", default=0.0, type=float, help="L2 loss weight")
-    parser.add_argument("--bins_per_semitone", default=5, type=int, help="Bins per semitone")
-    parser.add_argument("--annotation_smoothing", default=0.25, type=float, help="Set standard deviation of the gaussian blur for the frame annotations")
     parser.add_argument("--miss_weight", default=1.0, type=float, help="Weight for missed frames in the loss function")
 
     return parser
@@ -85,7 +92,7 @@ def input_normalization(window, args):
 
 def loss(self, args):
     # Melody input, not compatible with multif0 input
-    annotations = self.annotations[:, :, 0]
+    annotations = self.annotations[:, :, 0] - args.min_note
     voicing_ref = tf.cast(tf.greater(annotations, 0), tf.float32)
     if args.annotation_smoothing > 0:
         peak_ref = tf.cast(tf.abs(tf.tile(tf.reshape(annotations, [-1, self.annotations_per_window, 1]), [1, 1, self.bin_count]) - self.note_bins) < 0.5, tf.float32)
@@ -114,7 +121,7 @@ def est_notes(self, args):
     peak_est = tf.cast(tf.argmax(self.note_logits, axis=2) / self.bins_per_semitone, tf.float32)
     peak_est = tf.cast(tf.abs(tf.tile(tf.reshape(peak_est, [-1, self.annotations_per_window, 1]), [1, 1, self.bin_count]) - self.note_bins) < 0.5, tf.float32)
     probs_around_peak = self.note_probabilities*peak_est
-    return tf.reduce_sum(self.note_bins * probs_around_peak, axis=2)/tf.reduce_sum(probs_around_peak, axis=2)
+    return tf.reduce_sum(self.note_bins * probs_around_peak, axis=2)/tf.reduce_sum(probs_around_peak, axis=2) + args.min_note
 
 def optimizer(self, args):
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
@@ -194,7 +201,7 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
         medleydb_validation_dataset = datasets.AADataset(medleydb_validation, args, dataset_transform)
         medleydb_small_validation_dataset = datasets.AADataset(medleydb_small_validation, args, dataset_transform)
         validation_datasets += [
-            VD("small_"+datasets.medleydb.prefix, medleydb_small_validation_dataset, 5000, small_hooks),
+            VD("small_"+datasets.medleydb.prefix, medleydb_small_validation_dataset, 1000, small_hooks),
             VD(datasets.medleydb.prefix, medleydb_validation_dataset, 20000, valid_hooks),
         ]
         test_datasets += [

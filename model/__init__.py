@@ -66,10 +66,10 @@ class Network:
             self.handle = tf.placeholder(tf.string, shape=[])
             self.iterator = tf.data.Iterator.from_string_handle(self.handle, output_types, output_shapes)
 
-            self.window_int16, self.spectrogram_uint8, self.annotations, self.times, self.audio_uid = self.iterator.get_next()
+            self.window_int16, self.spectrogram_uint16, self.annotations, self.times, self.audio_uid = self.iterator.get_next()
 
             self.window = tf.cast(self.window_int16, tf.float32)/32768.0
-            self.spectrogram = tf.cast(self.spectrogram_uint8, tf.float32)/255.0
+            self.spectrogram = tf.cast(self.spectrogram_uint16, tf.float32)/65536.0
 
             # if self.spectrogram_shape is not None:
             #     self.spectrogram = tf.placeholder(tf.float32, [None, self.spectrogram_shape[0], self.spectrogram_shape[1]], name="spectrogram")
@@ -107,6 +107,7 @@ class Network:
             assert self.training is not None
 
             self.saver = tf.train.Saver(max_to_keep=args.saver_max_to_keep)
+            self.saver_best = tf.train.Saver(max_to_keep=0)
 
             self.summary_writer = tf.summary.FileWriter(self.logdir, graph=self.session.graph, flush_secs=30)
 
@@ -124,9 +125,10 @@ class Network:
             # Initialize variables
             self.session.run(tf.global_variables_initializer())
 
-            if os.path.exists(os.path.join(self.logdir, args.checkpoint+".ckpt.index")):
+            checkpoint_path = os.path.join(self.logdir, args.checkpoint)
+            if os.path.exists(checkpoint_path+".index"):
                 self.restored = True
-                self.restore(args.checkpoint)
+                self.restore(checkpoint_path)
             else:
                 self.restored = False
                 # save the model function for easier reproducibility
@@ -150,10 +152,9 @@ class Network:
         
         # self.session.graph.finalize()
 
-        b = tf.train.global_step(self.session, self.global_step)
-        if self.args.rewind:
-            for i in range(b):
-                self.session.run(self.iterator.get_next(), {self.handle: train_iterator_handle})
+        b = -1
+        step = tf.train.global_step(self.session, self.global_step)
+        rewind = self.args.rewind
 
         timer = time.time()
         for i in range(epochs):
@@ -166,32 +167,45 @@ class Network:
                 }
 
                 try:
-                    if b % 1000 == 0:
-                        fetches = [self.raw_pitch_accuracy, self.loss, self.training, self.summaries, self.global_step]
-                        if self.args.full_trace:
-                            print("Running with trace_level=FULL_TRACE")
-                            run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
-                            run_metadata = tf.RunMetadata()
-
-                            values = self.session.run(fetches, feed_dict, options=run_options, run_metadata=run_metadata)
-                            self.summary_writer.add_run_metadata(run_metadata, 'run_metadata_step{}'.format(b))
-                        else:
-                            values = self.session.run(fetches, feed_dict)
-
-                        raw_pitch_accuracy, loss, _, summary, step = values
+                    if rewind and b < step-1:
+                        self.session.run(self.times, feed_dict)
                     else:
-                        self.session.run(self.training, feed_dict)
+                        rewind = False
+
+                        if (b+1) % 1000 == 0:
+                            fetches = [self.raw_pitch_accuracy, self.loss, self.training, self.summaries, self.global_step]
+
+                            if self.args.full_trace:
+                                print("Running with trace_level=FULL_TRACE")
+                                run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+                                run_metadata = tf.RunMetadata()
+
+                                values = self.session.run(fetches, feed_dict, options=run_options, run_metadata=run_metadata)
+                                self.summary_writer.add_run_metadata(run_metadata, 'run_metadata_step{}'.format(b))
+                            else:
+                                values = self.session.run(fetches, feed_dict)
+
+                            raw_pitch_accuracy, loss, _, summary, step = values
+                        else:
+                            _, step = self.session.run([self.training, self.global_step], feed_dict)
+
                 except tf.errors.OutOfRangeError:
                     break
+                
+                b += 1
 
                 if b % 200 == 0 and b != 0:
                     print(".", end="")
 
+                if rewind:
+                    continue
+
                 if b % 1000 == 0 and b != 0:
                     self.summary_writer.add_summary(summary, step)
-                    print("b {0}; t {1:.2f}; RPA {2:.2f}; loss {3:.4f}".format(step, time.time() - timer, raw_pitch_accuracy, loss))
+                    if b != step:
+                        print("step {};".format(step), end=" ")
+                    print("b {0}; t {1:.2f}; RPA {2:.2f}; loss {3:.4f}".format(b, time.time() - timer, raw_pitch_accuracy, loss))
                     timer = time.time()
-
 
                 for vd, iterator, handle in zip(validation_datasets, validation_iterators, validation_handles):
                     if b % vd.evaluate_every == 0 and b != 0:
@@ -201,11 +215,10 @@ class Network:
                         timer = time.time()
 
                 if b % save_every_n_batches == 0 and b != 0:
-                    self.save()
+                    self.save(self.args.checkpoint)
                     print("saving, t {:.2f}".format(time.time()-timer))
                     timer = time.time()
 
-                b += 1
         print("=== done ===")
 
     def _predict_handle(self, handle, additional_fetches=[]):
@@ -300,9 +313,11 @@ class Network:
         text = tf.convert_to_tensor(" ".join(sys.argv[:]))
         self.summary_writer.add_summary(self.session.run(tf.summary.text("run_command", text)))
 
-    def save(self, name):
+    def save(self, name, saver=None):
+        if saver is None:
+            saver = self.saver
         save_path = os.path.join(self.logdir, name)
-        save_path = self.saver.save(self.session, save_path)
+        save_path = saver.save(self.session, save_path)
         print("Model saved in path:", save_path)
 
     def restore(self, restore_path):

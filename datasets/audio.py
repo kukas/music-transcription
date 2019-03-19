@@ -125,10 +125,10 @@ class Audio:
         cut_start = start_window = int(start_sample/self.spectrogram_hop_size)
         cut_end = end_window = cut_start + cut_length
 
-        last_window_index = self.spectrogram.shape[1] - 1
+        last_window_index = self.spectrogram.shape[-1] - 1
 
         if start_window > last_window_index or end_window < 0:
-            return np.zeros(self.spectrogram.shape[:1]+(end_window-start_window,), dtype=self.spectrogram.dtype)
+            return np.zeros(self.spectrogram.shape[:-1]+(end_window-start_window,), dtype=self.spectrogram.dtype)
 
         # padding the snippets with zeros when the context reaches outside the audio
         cut_start_diff = 0
@@ -139,16 +139,17 @@ class Audio:
         if end_window > last_window_index:
             cut_end = last_window_index
             cut_end_diff = end_window - last_window_index
+        
 
-        spectrogram = self.spectrogram[:, cut_start:cut_end]
+        spectrogram = self.spectrogram[:, :, cut_start:cut_end]
 
         if cut_start_diff:
-            zeros = np.zeros(self.spectrogram.shape[:1]+(cut_start_diff,), dtype=self.spectrogram.dtype)
-            spectrogram = np.concatenate([zeros, spectrogram], axis=1)
+            zeros = np.zeros(self.spectrogram.shape[:-1]+(cut_start_diff,), dtype=self.spectrogram.dtype)
+            spectrogram = np.concatenate([zeros, spectrogram], axis=-1)
 
         if cut_end_diff:
-            zeros = np.zeros(self.spectrogram.shape[:1]+(cut_end_diff,), dtype=self.spectrogram.dtype)
-            spectrogram = np.concatenate([spectrogram, zeros], axis=1)
+            zeros = np.zeros(self.spectrogram.shape[:-1]+(cut_end_diff,), dtype=self.spectrogram.dtype)
+            spectrogram = np.concatenate([spectrogram, zeros], axis=-1)
 
         return spectrogram
 
@@ -168,7 +169,7 @@ class Audio:
 
         if self.spectrogram is not None:
             sliced.spectrogram_hop_size = self.spectrogram_hop_size
-            sliced.spectrogram = self.spectrogram[:, int(b0/self.spectrogram_hop_size):int(b1/self.spectrogram_hop_size)]
+            sliced.spectrogram = self.spectrogram[:, :, int(b0/self.spectrogram_hop_size):int(b1/self.spectrogram_hop_size)]
 
         return sliced
 
