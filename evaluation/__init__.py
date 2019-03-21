@@ -85,6 +85,8 @@ def evaluate_dataset_melody(refs, ests, per_track_info=False):
         filename = os.path.splitext(os.path.basename(ref))[0]
 
         if not os.path.exists(ref) or not os.path.exists(est):
+            if all_scores != []:
+                raise ValueError("Estimation or reference files not complete.")
             continue
         
         ref_time, ref_freq = mir_eval.io.load_time_series(ref, delimiter='\\s+|,')
@@ -121,6 +123,8 @@ def results(method, path, est_suffix=".csv"):
         if os.path.exists(join(path, ests_dir)):
             # List of the paths to estimation annotations
             est_paths = [join(path, ests_dir, name+est_suffix) for name in audio_names]
+            if not all(os.path.exists(path) for path in est_paths):
+                continue
 
             est_last_access = max(os.path.getmtime(path) for path in est_paths)
             saved_results_path = join(path, "eval-{}_{}-{}.pkl".format(prefix, split, est_last_access))
