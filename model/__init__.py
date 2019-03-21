@@ -200,8 +200,11 @@ class Network:
                 if rewind:
                     continue
 
+                flush = False
                 if b % 1000 == 0 and b != 0:
                     self.summary_writer.add_summary(summary, step)
+                    flush = True
+
                     if b != step:
                         print("step {};".format(step), end=" ")
                     print("b {0}; t {1:.2f}; RPA {2:.2f}; loss {3:.4f}".format(b, time.time() - timer, raw_pitch_accuracy, loss))
@@ -211,13 +214,19 @@ class Network:
                     if b % vd.evaluate_every == 0 and b != 0:
                         self.session.run(iterator.initializer)
                         self._evaluate_handle(vd, handle)
+                        flush = True
+
                         print("  time: {:.2f}".format(time.time() - timer))
                         timer = time.time()
 
                 if b % save_every_n_batches == 0 and b != 0:
                     self.save(self.args.checkpoint)
+
                     print("saving, t {:.2f}".format(time.time()-timer))
                     timer = time.time()
+
+                if flush:
+                    self.summary_writer.flush()
 
         print("=== done ===")
 
