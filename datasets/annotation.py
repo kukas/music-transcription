@@ -31,26 +31,38 @@ class Annotation:
         self.notes = self.notes.astype(np.float32)
 
     @staticmethod
-    def from_time_series(annot_path, dataset_prefix):
+    def from_time_series(annot_path, uid, hop_samples=256):
         check_dir(CACHED_FILES_PATH)
         # Check if there is a cached numpy binary
-        filename = os.path.splitext(os.path.basename(annot_path))[0]
-        cached_path = os.path.join(CACHED_FILES_PATH, dataset_prefix+"_"+filename+".npz")
+        cached_path = os.path.join(CACHED_FILES_PATH, "{}_{}.npz".format(uid, hop_samples))
         if os.path.isfile(cached_path):
             times, freqs, notes, voicing = np.load(cached_path).values()
             return Annotation(times, freqs, notes, voicing)
         else:
-            times, freqs = mir_eval.io.load_ragged_time_series(annot_path, delimiter=r'\s+|,')
+            delimiter = r'\s+|,'
+            times, freqs = mir_eval.io.load_ragged_time_series(annot_path, delimiter=delimiter)
             max_polyphony = np.max([len(frame) for frame in freqs])
-            freqs_aligned = np.zeros((len(freqs), max_polyphony))
-            voicing = np.zeros((len(freqs),), dtype=np.int32)
-            for i, frame in enumerate(freqs):
-                for j, freq in enumerate(frame):
-                    if freq == 0:
-                        break
-                    freqs_aligned[i, j] = freq
-                    voicing[i] += 1
-            annot = Annotation(times, freqs_aligned, voicing=voicing)
+
+            # resample annotations
+            times_new = np.arange(times[0], times[-1], hop_samples/44100)
+            if max_polyphony == 1:
+                times, freqs = mir_eval.io.load_time_series(annot_path, delimiter=delimiter)
+                voicing = freqs > 0
+                freqs, voicing = mir_eval.melody.resample_melody_series(times, freqs, voicing, times_new, kind='linear')
+
+                freqs_aligned = np.expand_dims(freqs, -1)
+            else:
+                freqs = mir_eval.multipitch.resample_multipitch(times, freqs, times_new)
+                freqs_aligned = np.zeros((len(freqs), max_polyphony))
+                voicing = np.zeros((len(freqs),), dtype=np.int32)
+                for i, frame in enumerate(freqs):
+                    for j, freq in enumerate(frame):
+                        if freq == 0:
+                            break
+                        freqs_aligned[i, j] = freq
+                        voicing[i] += 1
+
+            annot = Annotation(times_new, freqs_aligned, voicing=voicing)
 
             np.savez(cached_path, annot.times, annot.freqs, annot.notes, annot.voicing)
 

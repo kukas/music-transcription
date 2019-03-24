@@ -28,7 +28,7 @@ def prepare(preload_fn, threads=None):
 
     def wjazzd_gen_split(name):
         gen = generator(os.path.join(modulepath, "..", "data", "WJazzD"))
-        return filter(lambda x: x.uid in wjazzd_split[name], gen)
+        return filter(lambda x: x.track_id in wjazzd_split[name], gen)
 
     train_data = load_melody_dataset(prefix, wjazzd_gen_split("train"))
     test_data = load_melody_dataset(prefix, wjazzd_gen_split("test"))

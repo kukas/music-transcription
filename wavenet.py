@@ -93,6 +93,7 @@ def construct(args):
 
     with network.session.graph.as_default():
         def preload_fn(aa):
+            aa.annotation = datasets.Annotation.from_time_series(*aa.annotation)
             aa.audio.load_resampled_audio(args.samplerate)
 
         def dataset_transform(tf_dataset, dataset):

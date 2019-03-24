@@ -42,37 +42,37 @@ def get_dataset_list():
             datasets.mdb_melody_synth.prefix,
             "test",
             "MDB-mel-s.",
-            list(filter(lambda x: x.uid in mdb_split["test"], datasets.mdb_melody_synth.generator(join(modulepath, "../data/MDB-melody-synth"))))
+            list(filter(lambda x: x.track_id in mdb_split["test"], datasets.mdb_melody_synth.generator(join(modulepath, "../data/MDB-melody-synth"))))
             ),
         (
             datasets.medleydb.prefix,
             "test",
             "MedleyDB",
-            list(filter(lambda x: x.uid in mdb_split["test"], datasets.medleydb.generator(join(modulepath, "../data/MedleyDB/MedleyDB"))))
+            list(filter(lambda x: x.track_id in mdb_split["test"], datasets.medleydb.generator(join(modulepath, "../data/MedleyDB/MedleyDB"))))
             ),
         (
             datasets.wjazzd.prefix,
             "test",
             "WJazzD",
-            list(filter(lambda x: x.uid in wjazzd_split["test"], datasets.wjazzd.generator(join(modulepath, "../data/WJazzD"))))
+            list(filter(lambda x: x.track_id in wjazzd_split["test"], datasets.wjazzd.generator(join(modulepath, "../data/WJazzD"))))
             ),
         (
             datasets.mdb_melody_synth.prefix,
             "valid",
             "MDB-mel-s. valid.",
-            list(filter(lambda x: x.uid in mdb_split["validation"], datasets.mdb_melody_synth.generator(join(modulepath, "../data/MDB-melody-synth"))))
+            list(filter(lambda x: x.track_id in mdb_split["validation"], datasets.mdb_melody_synth.generator(join(modulepath, "../data/MDB-melody-synth"))))
         ),
         (
             datasets.medleydb.prefix,
             "valid",
             "MedleyDB valid.",
-            list(filter(lambda x: x.uid in mdb_split["validation"], datasets.medleydb.generator(join(modulepath, "../data/MedleyDB/MedleyDB"))))
+            list(filter(lambda x: x.track_id in mdb_split["validation"], datasets.medleydb.generator(join(modulepath, "../data/MedleyDB/MedleyDB"))))
         ),
         (
             datasets.wjazzd.prefix,
             "valid",
             "WJazzD valid.",
-            list(filter(lambda x: x.uid in wjazzd_split["validation"], datasets.wjazzd.generator(join(modulepath, "../data/WJazzD"))))
+            list(filter(lambda x: x.track_id in wjazzd_split["validation"], datasets.wjazzd.generator(join(modulepath, "../data/WJazzD"))))
         ),
     ]
 

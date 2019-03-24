@@ -12,34 +12,35 @@ import multiprocessing
 
 from collections import namedtuple
 
-Track = namedtuple("Track", ("audio_path", "annot_path", "uid"))
+Track = namedtuple("Track", ("audio_path", "annot_path", "track_id"))
 
 def melody_dataset_generator(dataset_audio_path, dataset_annot_path, audio_suffix=".wav", annot_suffix=".csv"):
-    uids = [os.path.basename(f)[:-len(audio_suffix)] for f in sorted(glob(os.path.join(dataset_audio_path, "*"+audio_suffix)))]
-    for uid in uids:
-        audio_path = glob(os.path.join(dataset_audio_path, uid+audio_suffix))
-        annot_path = glob(os.path.join(dataset_annot_path, uid+annot_suffix))
+    track_ids = [os.path.basename(f)[:-len(audio_suffix)] for f in sorted(glob(os.path.join(dataset_audio_path, "*"+audio_suffix)))]
+    for track_id in track_ids:
+        audio_path = glob(os.path.join(dataset_audio_path, track_id+audio_suffix))
+        annot_path = glob(os.path.join(dataset_annot_path, track_id+annot_suffix))
 
         if len(annot_path) == 1:
-            yield Track(audio_path[0], annot_path[0], uid)
+            yield Track(audio_path[0], annot_path[0], track_id)
         else:
             if len(annot_path) == 0:
                 pass
-                # warnings.warn("Missing annotation for {}".format(uid))
+                # warnings.warn("Missing annotation for {}".format(track_id))
             else:
-                warnings.warn("More matching annotations for {}".format(uid))
+                warnings.warn("Multiple matching annotations for {}".format(track_id))
 
 
-def load_melody_dataset(name, dataset_iterator):
+def load_melody_dataset(dataset_name, dataset_iterator):
     annotated_audios = []
-    for audio_path, annot_path, uid in dataset_iterator:
+    for audio_path, annot_path, track_id in dataset_iterator:
+        uid = dataset_name+"_"+track_id
         # prepare audio
-        audio = Audio(audio_path, name+"_"+uid)
+        audio = Audio(audio_path, uid)
 
         # prepare annotation
         annotation = None
         if annot_path is not None:
-            annotation = Annotation.from_time_series(annot_path, name)
+            annotation = (annot_path, uid)
 
         annotated_audios.append(AnnotatedAudio(annotation, audio))
 

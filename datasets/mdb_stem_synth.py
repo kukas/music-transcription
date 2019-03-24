@@ -22,7 +22,7 @@ def prepare(preload_fn, threads=None):
 
     def mdb_split(name):
         gen = generator("data/MDB-stem-synth/")
-        return filter(lambda x: x.uid[:-len("_STEM_xx")] in medleydb_split[name], gen)
+        return filter(lambda x: x.track_id[:-len("_STEM_xx")] in medleydb_split[name], gen)
 
     train_data = load_melody_dataset(prefix, mdb_split("train"))
     valid_data = load_melody_dataset(prefix, mdb_split("validation"))

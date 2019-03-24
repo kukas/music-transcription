@@ -12,10 +12,4 @@ from . import mdb_stem_synth
 from . import mdb_mf0_synth
 from . import wjazzd
 
-from .common import load_melody_dataset, Track
-
-def load_all(data, samplerate):
-    for i,d in enumerate(data):
-        d.audio.load_resampled_audio(samplerate)
-        print(".", end=("" if (i+1) % 20 else "\n"))
-    print()
+from .common import load_melody_dataset

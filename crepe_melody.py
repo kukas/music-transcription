@@ -102,6 +102,7 @@ def construct(args):
 
     with network.session.graph.as_default():
         def preload_fn(aa):
+            aa.annotation = datasets.Annotation.from_time_series(*aa.annotation)
             aa.audio.load_resampled_audio(args.samplerate)
         
         # augment_audio_basa = datasets.Audio("/mnt/tera/jirka/V1/MatthewEntwistle_FairerHopes/MatthewEntwistle_FairerHopes_STEMS/MatthewEntwistle_FairerHopes_STEM_07.wav",

@@ -280,15 +280,6 @@ class Network:
 
         return estimations, []
 
-    def predict(self, dataset_iterator, name="predict"):
-        predict_data = datasets.load_melody_dataset(name, dataset_iterator)
-        with self.session.graph.as_default():
-            predict_dataset = datasets.AADataset(predict_data, self.args, self.dataset_transform)
-            iterator = predict_dataset.dataset.make_one_shot_iterator()
-        handle = self.session.run(iterator.string_handle())
-
-        return self._predict_handle(handle)
-
     def _evaluate_handle(self, vd, handle):
         raise NotImplementedError()
 
