@@ -63,27 +63,31 @@ def draw_notes(ref, est, title=None, dynamic_figsize=True, note_probs=None):
     indices_correct_negative, correct_negative = flatten([[-n_est for n_est in fest if n_est < 0 and any([abs_correct(n_ref, -n_est) for n_ref in fref])] for fref, fest in zip(ref, est)])
     indices_incorrect_negative, incorrect_negative = flatten([[-n_est for n_est in fest if n_est < 0 and (all([not abs_correct(n_ref, -n_est)
                                                                                                                for n_ref in fref]) or len(fref) == 0)] for fref, fest in zip(ref, est)])
+    indices_incorrect_chroma_negative, incorrect_chroma_negative = flatten([[-n_est for n_est in fest if n_est < 0 and all(
+        [not abs_correct(n_ref, -n_est) and octave_correct(n_ref, -n_est) for n_ref in fref]) and len(fref) > 0] for fref, fest in zip(ref, est)])
 
     indices_correct, correct = flatten([[n_est for n_est in fest if n_est > 0 and any([abs_correct(n_ref, n_est) for n_ref in fref])] for fref, fest in zip(ref, est)])
     indices_unvoiced_incorrect, unvoiced_incorrect = flatten([[n_est for n_est in fest if n_est > 0 and len(fref) == 0] for fref, fest in zip(ref, est)])
     indices_incorrect_chroma, incorrect_chroma = flatten([[n_est for n_est in fest if n_est > 0 and all(
-        [not abs_correct(n_est, n_ref) and octave_correct(n_ref, n_est) for n_ref in fref]) and len(fref) > 0] for fref, fest in zip(ref, est)])
+        [not abs_correct(n_ref, n_est) and octave_correct(n_ref, n_est) for n_ref in fref]) and len(fref) > 0] for fref, fest in zip(ref, est)])
     indices_incorrect, incorrect = flatten([[n_est for n_est in fest if n_est > 0 and all([not abs_correct(n_ref, n_est) and not octave_correct(n_ref, n_est)
                                                                                            for n_ref in fref]) and len(fref) > 0] for fref, fest in zip(ref, est)])
     indices_ref_rest, ref_rest = flatten(ref)
 
     ms = 2
     style = "."
-    axs[0].plot(indices_ref_rest, ref_rest, style, color="#222222", label="REF", markersize=ms)
-    axs[0].plot(indices_unvoiced_incorrect, unvoiced_incorrect, style, color="#A3473A", label="EST voicing error", markersize=ms)
-    axs[0].plot(indices_incorrect_chroma, incorrect_chroma, style, color="#ffb030", label="EST octave error", markersize=ms)
-    axs[0].plot(indices_incorrect, incorrect, style, color="#ff300e", label="EST incorrect", markersize=ms)
-    axs[0].plot(indices_correct, correct, style, color="#0ab02d", label="EST correct", markersize=ms)
+    axs[0].plot(indices_ref_rest, ref_rest, style, color="#2C4251", label="REF", markersize=ms)
+    axs[0].plot(indices_unvoiced_incorrect, unvoiced_incorrect, style, color="#247BA0", label="EST voicing error", markersize=ms)
+    axs[0].plot(indices_incorrect_chroma, incorrect_chroma, style, color="#CFA237", label="EST octave error", markersize=ms)
+    axs[0].plot(indices_incorrect, incorrect, style, color="#BA314A", label="EST incorrect", markersize=ms)
+    axs[0].plot(indices_correct, correct, style, color="#419379", label="EST correct", markersize=ms)
 
-    # if indices_correct_negative:
-    #     plt.plot(indices_correct_negative, correct_negative, style, color="#0000ff", label="EST correct negative", markersize=ms)
-    # if indices_incorrect_negative:
-    #     plt.plot(indices_incorrect_negative, incorrect_negative, style, color="#ff00ff", label="EST incorrect negative", markersize=ms)
+    if indices_correct_negative:
+        axs[0].plot(indices_correct_negative, correct_negative, "v", color="#B3E6D6", label="EST correct negative", markersize=ms)
+    if indices_incorrect_negative:
+        axs[0].plot(indices_incorrect_negative, incorrect_negative, "v", color="#F3909A", label="EST incorrect negative", markersize=ms)
+    if indices_incorrect_chroma_negative:
+        axs[0].plot(indices_incorrect_chroma_negative, incorrect_chroma_negative, "v", color="#F2DCA6", label="EST octave error negative", markersize=ms)
 
     axs[0].legend()
 
@@ -110,7 +114,7 @@ def draw_confusion(ref, est):
 
     for fref, fest in zip(ref, est):
         n_ref = int(np.round(fref[0])) if len(fref) > 0 else 0
-        n_est = int(np.round(fest[0])) if len(fest) > 0 else 0
+        n_est = np.abs(int(np.round(fest[0]))) if len(fest) > 0 else 0
         if n_ref == 0 or n_est == 0:
             continue
         cm[n_est, n_ref] += 1
@@ -159,7 +163,7 @@ def draw_confusion(ref, est):
 
 def draw_hists(ref, est):
     ref_note = datasets.common.multif0_to_melody(ref)
-    est_note = datasets.common.multif0_to_melody(est)
+    est_note = np.abs(datasets.common.multif0_to_melody(est))
     diff = est_note - ref_note
 
     fig, axs = plt.subplots(2, 1, figsize=(15, 6))

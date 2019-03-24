@@ -121,7 +121,16 @@ def est_notes(self, args):
     peak_est = tf.cast(tf.argmax(self.note_logits, axis=2) / self.bins_per_semitone, tf.float32)
     peak_est = tf.cast(tf.abs(tf.tile(tf.reshape(peak_est, [-1, self.annotations_per_window, 1]), [1, 1, self.bin_count]) - self.note_bins) < 0.5, tf.float32)
     probs_around_peak = self.note_probabilities*peak_est
-    return tf.reduce_sum(self.note_bins * probs_around_peak, axis=2)/tf.reduce_sum(probs_around_peak, axis=2) + args.min_note
+    probs_around_peak_sums = tf.reduce_sum(probs_around_peak, axis=2)
+
+    est_notes = (tf.reduce_sum(self.note_bins * probs_around_peak, axis=2)/probs_around_peak_sums + args.min_note)
+
+    if self.voicing_logits is not None:
+        est_notes *= tf.cast(tf.greater(self.voicing_logits, 0), tf.float32)*2 - 1
+    else:
+        est_notes *= tf.cast(tf.greater(probs_around_peak_sums, 0.3), tf.float32)*2 - 1
+
+    return est_notes
 
 def optimizer(self, args):
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)

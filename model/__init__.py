@@ -18,9 +18,6 @@ from mem_top import mem_top
 
 import tensorflow as tf
 
-import mir_eval
-mir_eval.multipitch.MIN_FREQ = 1
-
 
 VD = namedtuple("ValidationDataset", ["name", "dataset", "evaluate_every", "hooks"])
 
@@ -91,8 +88,10 @@ class Network:
             # self.ref_notes_sparse = tf.concat([tf.zeros([dims[0], dims[1], 1]), self.ref_notes_sparse[:,:,1:]], axis=2)
 
             # create_model has to provide these values:
+            self.note_logits = None
             self.note_probabilities = None
             self.est_notes = None
+            self.voicing_logits = None
             self.loss = None
             self.training = None
 
@@ -224,7 +223,7 @@ class Network:
 
                     print("saving, t {:.2f}".format(time.time()-timer))
                     timer = time.time()
-
+                
                 if flush:
                     self.summary_writer.flush()
 
@@ -339,7 +338,7 @@ class NetworkMelody(Network):
         # batch metrics
         with tf.name_scope("metrics"):
             ref_notes = tf.cast(self.annotations[:, :, 0], tf.float32)
-            correct = tf.less(tf.abs(ref_notes-self.est_notes), 0.5)
+            correct = tf.less(tf.abs(ref_notes-tf.abs(self.est_notes)), 0.5)
             voiced_ref = tf.greater(self.annotations[:, :, 0], 0)
             voiced_est = tf.greater(self.est_notes, 0)
             correct_voiced_sum = tf.count_nonzero(tf.logical_and(correct, voiced_ref))
