@@ -30,6 +30,8 @@ def overall_chroma_accuracy(ref_voicing, ref_cent, est_voicing, est_cent, cent_t
 
 
 def raw_harmonic_accuracy(ref_voicing, ref_freq, est_voicing, est_freq, harmonics=5, cent_tolerance=50):
+    est_freq = np.abs(est_freq)
+
     mir_eval.melody.validate_voicing(ref_voicing, est_voicing)
     mir_eval.melody.validate(ref_voicing, ref_freq, est_voicing, est_freq)
     ref_voicing = ref_voicing.astype(bool)
