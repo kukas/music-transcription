@@ -90,6 +90,8 @@ class Network:
             # create_model has to provide these values:
             self.note_logits = None
             self.note_probabilities = None
+            # or
+            self.voicing_threshold = tf.constant(1.0)
             self.est_notes = None
             self.voicing_logits = None
             self.loss = None
@@ -137,7 +139,7 @@ class Network:
     def _summaries(self, args):
         raise NotImplementedError()
 
-    def train(self, train_dataset, epochs, validation_datasets, save_every_n_batches=20000):
+    def train(self, train_dataset, validation_datasets, save_every_n_batches=20000):
         validation_iterators = []
         validation_handles = []
         with self.session.graph.as_default():
@@ -156,9 +158,13 @@ class Network:
         rewind = self.args.rewind
 
         timer = time.time()
-        for i in range(epochs):
+        i = 0
+        while True:
+            i += 1
+            if self.args.epochs is not None and i > self.args.epochs:
+                break
             self.session.run(train_iterator.initializer)
-            print("=== epoch", i+1, "===")
+            print("=== epoch", i, "===")
             while True:
                 feed_dict = {
                     self.handle: train_iterator_handle,
@@ -230,55 +236,68 @@ class Network:
         print("=== done ===")
 
     def _predict_handle(self, handle, additional_fetches=[]):
+        # de-dup additional_fetches
+        additional_fetches = list(set(additional_fetches))
+        fetches = [self.audio_uid, self.times, self.est_notes]+additional_fetches
+
         feed_dict = {
             self.is_training: False,
             self.handle: handle
         }
 
-        notes = defaultdict(list)
-        times = defaultdict(list)
-        additional = []
+        all_values = [None] * len(fetches)
 
         last_uid = None
+        first_run = True
         while True:
             try:
-                fetches = self.session.run([self.est_notes, self.times, self.audio_uid]+additional_fetches, feed_dict)
+                fetched_values = self.session.run(fetches, feed_dict)
             except tf.errors.OutOfRangeError:
                 break
+            
+            uids = fetched_values[0]
+            uids = list(map(lambda uid: uid.decode("utf-8"), uids))
+            times = fetched_values[1]
+            mask = times >= 0
+            
+            if first_run:
+                for i, value in enumerate(fetched_values):
+                    if value.shape == ():
+                        all_values[i] = []
+                    else:
+                        all_values[i] = defaultdict(list)
+                first_run = False
+            
+            for all_values_bin, value in zip(all_values, fetched_values):
+                if value.shape != () and value.shape[0] == len(uids):
+                    for uid, window_mask, window in zip(uids, mask, value):
+                        if len(value.shape) == 1:
+                            all_values_bin[uid].append(window)
+                        if len(value.shape) >= 2:
+                            all_values_bin[uid].append(window[window_mask])
+                else:
+                    all_values_bin.append(value)
 
-            additional.append(fetches[3:])
-            # iterates through the batch output
-            for est_notes_window, times_window, uid in zip(*fetches[:3]):
-                uid = uid.decode("utf-8")
-                notes[uid].append(est_notes_window)
-                times[uid].append(times_window)
-
-                if last_uid is None:
-                    last_uid = uid
-                if last_uid != uid:
-                    print(".", end="")
-                    last_uid = uid
+            if last_uid is None or last_uid != uids[0]:
+                print(".", end="")
+                last_uid = uids[0]
         print()
 
         estimations = {}
+        times = all_values[1]
+        notes = all_values[2]
         for uid in notes.keys():
             est_time = np.concatenate(times[uid])
             est_notes = np.concatenate(notes[uid])
 
-            # if there is padding at the end of the estimation, cut it
-            # ignore the first zero time
-            zeros = np.where(est_time[1:] == 0)[0] + 1
-            if len(zeros) > 0:
-                est_time = est_time[:zeros[0]]
-                est_notes = est_notes[:zeros[0]]
+            for all_values_bin in all_values[3:]:
+                if not isinstance(all_values_bin, list):
+                    all_values_bin[uid] = np.concatenate(all_values_bin[uid])
 
             est_freq = datasets.common.midi_to_hz_safe(est_notes)
             estimations[uid] = (est_time, est_freq)
 
-        if additional_fetches:
-            return estimations, additional
-
-        return estimations, []
+        return estimations, dict(zip(fetches, all_values))
 
     def _evaluate_handle(self, vd, handle):
         raise NotImplementedError()
@@ -292,7 +311,7 @@ class Network:
 
     def save_model_fn(self, create_model):
         source = inspect.getsource(create_model)
-        source = "\t"+source.replace("\n", "\t\n").replace("    ", "\t")
+        source = "\t"+source.replace("\n", "\n\t").replace("    ", "\t")
         text = tf.convert_to_tensor(source)
         self.summary_writer.add_summary(self.session.run(tf.summary.text("model_fn", text)))
 

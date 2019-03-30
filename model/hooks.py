@@ -83,8 +83,7 @@ class VisualOutputHook(EvaluationHook):
         if self.draw_notes:
             note_probs = None
             if self.draw_probs:
-                # TODO!! opravit array additional na dictionary
-                note_probs = np.concatenate(np.concatenate([x[1] for x in additional]), axis=0).T
+                note_probs = np.concatenate(list(additional[ctx.note_probabilities].values())).T
 
             fig = vis.draw_notes(reference, estimation, title=title, note_probs=note_probs)
             add_fig(fig, ctx.summary_writer, prefix+"notes", global_step)
@@ -147,7 +146,7 @@ class MetricsHook(EvaluationHook):
 
     def _save_metrics(self, ctx, vd, additional):
         ctx.metrics = pandas.DataFrame(self.all_metrics).mean()
-        ctx.metrics["Loss"] = np.mean([x[0] for x in additional])
+        ctx.metrics["Loss"] = np.mean(additional[ctx.loss])
 
         if self.print_detailed:
             print(ctx.metrics)

@@ -11,7 +11,7 @@ from model import VD, VisualOutputHook, MetricsHook, MetricsHook_mf0, VisualOutp
 
 def name(args, prefix=""):
     if args.logdir is None:
-        filtered = ["logdir", "checkpoint", "saver_max_to_keep", "threads", "full_trace", "debug_memory_leaks", "cpu" ,"rewind", "evaluate", "epochs", "batch_size_evaluation", "note_range"]
+        filtered = ["logdir", "checkpoint", "saver_max_to_keep", "threads", "full_trace", "debug_memory_leaks", "cpu" ,"rewind", "evaluate", "evaluate_every", "evaluate_small_every", "epochs", "batch_size_evaluation"]
         name = "{}-{}".format(datetime.datetime.now().strftime("%m%d_%H%M%S"), prefix)
         for k, v in vars(args).items():
             if k not in filtered:
@@ -35,6 +35,8 @@ def common_arguments(defaults={}):
         "samplerate": 16000,
         "min_note": 0,
         "note_range": 128,
+        "evaluate_every": 20000,
+        "evaluate_small_every": 5000,
     }
     defaults = {**_defaults, **defaults}
     parser = argparse.ArgumentParser()
@@ -50,7 +52,9 @@ def common_arguments(defaults={}):
     # training settings
     parser.add_argument("--rewind", action='store_true', help="Rewind back to the same point in training.")
     parser.add_argument("--evaluate", action='store_true', help="Evaluate after training. If an existing checkpoint is specified, it will be evaluated only.")
-    parser.add_argument("--epochs", default=10, type=int, help="Number of epochs to train for.")
+    parser.add_argument("--evaluate_every", default=defaults["evaluate_every"], type=int, help="Evaluate validation set every N steps.")
+    parser.add_argument("--evaluate_small_every", default=defaults["evaluate_small_every"], type=int, help="Evaluate small validation set every N steps.")
+    parser.add_argument("--epochs", default=None, type=int, help="Number of epochs to train for.")
     # input
     parser.add_argument("--datasets", default=["mdb"], nargs="+", type=str, help="Datasets to use for this experiment")
     parser.add_argument("--batch_size", default=32, type=int, help="Number of examples in one batch")
@@ -95,13 +99,16 @@ def loss(self, args):
     annotations = self.annotations[:, :, 0] - args.min_note
     voicing_ref = tf.cast(tf.greater(annotations, 0), tf.float32)
     if args.annotation_smoothing > 0:
-        peak_ref = tf.cast(tf.abs(tf.tile(tf.reshape(annotations, [-1, self.annotations_per_window, 1]), [1, 1, self.bin_count]) - self.note_bins) < 0.5, tf.float32)
         self.note_probabilities = tf.nn.sigmoid(self.note_logits)
         note_ref = tf.tile(tf.reshape(annotations, [-1, self.annotations_per_window, 1]), [1, 1, self.bin_count])
         ref_probabilities = tf.exp(-(note_ref-self.note_bins)**2/(args.annotation_smoothing**2))
 
         voicing_weights = tf.tile(tf.expand_dims(voicing_ref, -1), [1, 1, self.bin_count])
+
+        # miss weights
+        peak_ref = tf.cast(tf.abs(tf.tile(tf.reshape(annotations, [-1, self.annotations_per_window, 1]), [1, 1, self.bin_count]) - self.note_bins) < 0.5, tf.float32)
         miss_weights = tf.ones_like(voicing_weights)*args.miss_weight + peak_ref*(1-args.miss_weight)
+
         loss = tf.losses.sigmoid_cross_entropy(ref_probabilities, self.note_logits, weights=voicing_weights*miss_weights)
     else:
         self.note_probabilities = tf.nn.softmax(self.note_logits)
@@ -112,10 +119,17 @@ def loss(self, args):
         reg_variables = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
         l2_loss = tf.reduce_sum(tf.constant(args.l2_loss_weight)*reg_variables)
         tf.summary.scalar('metrics/train/l2_loss', l2_loss)
-        tf.summary.scalar('metrics/train/ce_loss', loss)
+        tf.summary.scalar('metrics/train/note_loss', loss)
         loss += l2_loss
     
+    if self.voicing_logits is not None:
+        voicing_loss = tf.losses.sigmoid_cross_entropy(voicing_ref, self.voicing_logits) * 0.01
+        tf.summary.scalar('metrics/train/voicing_loss', voicing_loss)
+        tf.summary.scalar('metrics/train/note_loss', loss)
+        loss += voicing_loss
+    
     return loss
+
 
 def est_notes(self, args):
     peak_est = tf.cast(tf.argmax(self.note_logits, axis=2) / self.bins_per_semitone, tf.float32)
@@ -123,14 +137,17 @@ def est_notes(self, args):
     probs_around_peak = self.note_probabilities*peak_est
     probs_around_peak_sums = tf.reduce_sum(probs_around_peak, axis=2)
 
-    est_notes = (tf.reduce_sum(self.note_bins * probs_around_peak, axis=2)/probs_around_peak_sums + args.min_note)
+    self.est_notes_confidence = probs_around_peak_sums / tf.math.count_nonzero(peak_est, axis=2, dtype=tf.float32)
+
+    est_notes = tf.reduce_sum(self.note_bins * probs_around_peak, axis=2)/probs_around_peak_sums + args.min_note
 
     if self.voicing_logits is not None:
         est_notes *= tf.cast(tf.greater(self.voicing_logits, 0), tf.float32)*2 - 1
     else:
-        est_notes *= tf.cast(tf.greater(probs_around_peak_sums, 0.3), tf.float32)*2 - 1
+        est_notes *= tf.cast(tf.greater(probs_around_peak_sums, self.voicing_threshold), tf.float32)*2 - 1
 
     return est_notes
+
 
 def optimizer(self, args):
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
@@ -193,13 +210,18 @@ def add_layers_from_string(in_layer, layers_string):
     return in_layer
 # Dataset functions
 
-def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transform_train):
+
+def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transform_train, small_hooks_mf0=None, small_hooks=None, valid_hooks=None, test_hooks=None):
     timer = time.time()
 
-    small_hooks_mf0 = [MetricsHook_mf0(), VisualOutputHook_mf0(True, True, True)]
-    small_hooks = [MetricsHook(), VisualOutputHook(True, True, False, False)]
-    valid_hooks = [MetricsHook(write_estimations=True), VisualOutputHook(False, False, True, True), SaveBestModelHook(args.logdir)]
-    test_hooks = [MetricsHook(write_summaries=False, print_detailed=True, write_estimations=True)]
+    if small_hooks_mf0 is None:
+        small_hooks_mf0 = [MetricsHook_mf0(), VisualOutputHook_mf0(True, True, True)]
+    if small_hooks is None:
+        small_hooks = [MetricsHook(), VisualOutputHook(True, True, False, False)]
+    if valid_hooks is None:
+        valid_hooks = [MetricsHook(write_estimations=True), VisualOutputHook(False, False, True, True), SaveBestModelHook(args.logdir)]
+    if test_hooks is None:
+        test_hooks = [MetricsHook(write_summaries=False, print_detailed=True, write_estimations=True)]
 
     validation_datasets = []
     test_datasets = []
@@ -210,10 +232,11 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
         medleydb_validation_dataset = datasets.AADataset(medleydb_validation, args, dataset_transform)
         medleydb_small_validation_dataset = datasets.AADataset(medleydb_small_validation, args, dataset_transform)
         validation_datasets += [
-            VD("small_"+datasets.medleydb.prefix, medleydb_small_validation_dataset, 1000, small_hooks),
-            VD(datasets.medleydb.prefix, medleydb_validation_dataset, 20000, valid_hooks),
+            VD("small_"+datasets.medleydb.prefix, medleydb_small_validation_dataset, args.evaluate_small_every, small_hooks),
+            VD(datasets.medleydb.prefix, medleydb_validation_dataset, args.evaluate_every, valid_hooks),
         ]
         test_datasets += [
+            # VD("small_"+datasets.medleydb.prefix, medleydb_small_validation_dataset, 0, test_hooks),
             VD(datasets.medleydb.prefix, medleydb_test_dataset, 0, test_hooks),
             VD(datasets.medleydb.prefix, medleydb_validation_dataset, 0, test_hooks),
         ]
@@ -224,7 +247,7 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
         mdb_melody_synth_test_dataset = datasets.AADataset(mdb_melody_synth_test, args, dataset_transform)
         mdb_melody_synth_validation_dataset = datasets.AADataset(mdb_melody_synth_validation, args, dataset_transform)
         validation_datasets += [
-            VD(datasets.mdb_melody_synth.prefix, mdb_melody_synth_validation_dataset, 40000, valid_hooks),
+            VD(datasets.mdb_melody_synth.prefix, mdb_melody_synth_validation_dataset, args.evaluate_every, valid_hooks),
         ]
         test_datasets += [
             VD(datasets.mdb_melody_synth.prefix, mdb_melody_synth_test_dataset, 0, test_hooks),
@@ -237,8 +260,8 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
         mdb_stem_synth_small_validation_dataset = datasets.AADataset(mdb_stem_synth_small_validation, args, dataset_transform)
         mdb_stem_synth_validation_dataset = datasets.AADataset(mdb_stem_synth_validation, args, dataset_transform)
         validation_datasets += [
-            VD("small_"+datasets.mdb_stem_synth.prefix, mdb_stem_synth_small_validation_dataset, 5000, small_hooks),
-            VD(datasets.mdb_stem_synth.prefix, mdb_stem_synth_validation_dataset, 40000, valid_hooks),
+            VD("small_"+datasets.mdb_stem_synth.prefix, mdb_stem_synth_small_validation_dataset, args.evaluate_small_every, small_hooks),
+            VD(datasets.mdb_stem_synth.prefix, mdb_stem_synth_validation_dataset, args.evaluate_every, valid_hooks),
         ]
         train_data += mdb_stem_synth_train
 
@@ -246,7 +269,7 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
         _, _, mdb_mf0_synth_small_validation = datasets.mdb_mf0_synth.prepare(preload_fn)
         mdb_mf0_synth_small_validation_dataset = datasets.AADataset(mdb_mf0_synth_small_validation, args, dataset_transform)
         validation_datasets += [
-            VD("small_"+datasets.mdb_mf0_synth.prefix, mdb_mf0_synth_small_validation_dataset, 5000, small_hooks_mf0),
+            VD("small_"+datasets.mdb_mf0_synth.prefix, mdb_mf0_synth_small_validation_dataset, args.evaluate_small_every, small_hooks_mf0),
         ]
     
     if datasets.wjazzd.prefix in which:
@@ -255,8 +278,8 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
         wjazzd_validation_dataset = datasets.AADataset(wjazzd_validation, args, dataset_transform)
         wjazzd_small_validation_dataset = datasets.AADataset(wjazzd_small_validation, args, dataset_transform)
         validation_datasets += [
-            VD("small_"+datasets.wjazzd.prefix, wjazzd_small_validation_dataset, 5000, small_hooks),
-            VD(datasets.wjazzd.prefix, wjazzd_validation_dataset, 40000, valid_hooks),
+            VD("small_"+datasets.wjazzd.prefix, wjazzd_small_validation_dataset, args.evaluate_small_every, small_hooks),
+            VD(datasets.wjazzd.prefix, wjazzd_validation_dataset, args.evaluate_small_every, valid_hooks),
         ]
         test_datasets += [
             VD(datasets.wjazzd.prefix, wjazzd_test_dataset, 0, test_hooks),
@@ -268,7 +291,7 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
         orchset_test, orchset_small_validation = datasets.orchset.prepare(preload_fn)
         orchset_test_dataset = datasets.AADataset(orchset_test, args, dataset_transform)
         orchset_small_validation_dataset = datasets.AADataset(orchset_small_validation, args, dataset_transform)
-        validation_datasets.append(VD("small_"+datasets.orchset.prefix, orchset_small_validation_dataset, 5000, small_hooks))
+        validation_datasets.append(VD("small_"+datasets.orchset.prefix, orchset_small_validation_dataset, args.evaluate_small_every, small_hooks))
         test_datasets.append(VD(datasets.orchset.prefix, orchset_test_dataset, 0, test_hooks))
 
     if datasets.adc2004.prefix in which:
@@ -296,6 +319,7 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
         train_dataset = datasets.AADataset(train_data, args, dataset_transform_train, shuffle=True, hop_size=hop_size)
     else:
         # Return at least one dataset as training, since its parameters are used in network initialization
+        print("Warning: using automatically selected train_dataset")
         train_dataset = (test_datasets+validation_datasets)[0].dataset
 
     print("datasets ready in {:.2f}s".format(time.time() - timer))
@@ -312,7 +336,7 @@ def main(argv, construct, parse_args):
 
     if not (args.evaluate and network.restored):
         try:
-            network.train(train_dataset, args.epochs, validation_datasets, save_every_n_batches=10000)
+            network.train(train_dataset, validation_datasets, save_every_n_batches=10000)
             network.save(args.checkpoint)
         except KeyboardInterrupt:
             network.save(args.checkpoint)
