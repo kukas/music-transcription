@@ -54,17 +54,3 @@ def plot_note_hist(method, path, est_suffix=".csv"):
     ax.set_xticks(bins)
     bins = bins - 0.5
     sns.distplot(np.concatenate(diffs), kde=False, bins=bins)
-
-
-    # # data = data[data.Dataset=="MedleyDB"]
-    # plot_metric = "Raw Pitch Accuracy"
-    # drop_metrics = ['Voicing Recall', 'Voicing False Alarm', "Overall Accuracy"]
-
-    # hue = None
-    # palette = "Blues"
-    # if len(attr_names) > 1:
-    #     hue = attr_names[1]
-    #     palette = None
-    # sns.boxplot(x=plot_metric, y=attr_names[0], orient="h", hue=hue, data=data, fliersize=0, palette=palette, showmeans=True, showfliers=False)
-    # sns.swarmplot(x=plot_metric, y=attr_names[0], orient="h", hue=hue, data=data, dodge=True, linewidth=1, edgecolor='gray', palette=palette, alpha=0.7, size=4)
-    # return data.drop(drop_metrics, axis=1).groupby(attr_names).mean()

@@ -1,8 +1,4 @@
 import tensorflow as tf
-from tensorflow.keras import layers
-# from tensorflow.keras import backend as K
-
-
 import numpy as np
 
 import datasets
@@ -22,7 +18,7 @@ N_BINS = BINS_PER_OCTAVE*6
 
 def create_model(self, args):
     self.spectrogram.set_shape([None, len(HARMONICS), N_BINS, args.annotations_per_window + 2*args.context_width/HOP_LENGTH])
-    
+
     spectrogram = self.spectrogram
     spectrogram = tf.transpose(spectrogram, [0, 3, 2, 1])
 
@@ -32,48 +28,66 @@ def create_model(self, args):
     # layer = tf.pad(layer, ((0, 0), (0, 0), (41, 41), (0, 0)))
     print(layer.shape)
 
-    with tf.name_scope('model'):
+    context_size = int(args.context_width/HOP_LENGTH)
+
+    with tf.name_scope('model_pitch'):
         layer = tf.layers.batch_normalization(layer, training=self.is_training)
         layer = tf.layers.conv2d(layer, 64, (5, 5), (1, 1), "same", activation=tf.nn.relu, use_bias=False)
+        layer = tf.layers.dropout(layer, 0.25, training=self.is_training)
         residual = layer
         layer = tf.layers.batch_normalization(layer, training=self.is_training)
         layer = tf.layers.conv2d(layer, 64, (5, 5), (1, 1), "same", activation=tf.nn.relu, use_bias=False)
+        layer = tf.layers.dropout(layer, 0.25, training=self.is_training)
         residual += layer
         layer = tf.layers.batch_normalization(layer, training=self.is_training)
-        layer = tf.layers.conv2d(layer, 64, (3, 3), (1, 1), "same", activation=tf.nn.relu, use_bias=False)
+        layer = tf.layers.conv2d(layer, 64, (9, 3), (1, 1), "same", activation=tf.nn.relu, use_bias=False)
+        layer = tf.layers.dropout(layer, 0.25, training=self.is_training)
         residual += layer
         layer = tf.layers.batch_normalization(layer, training=self.is_training)
-        layer = tf.layers.conv2d(layer, 64, (3, 3), (1, 1), "same", activation=tf.nn.relu, use_bias=False)
+        layer = tf.layers.conv2d(layer, 64, (9, 3), (1, 1), "same", activation=tf.nn.relu, use_bias=False)
+        layer = tf.layers.dropout(layer, 0.25, training=self.is_training)
         residual += layer
-        # layer3 = tf.layers.conv2d(layer_1, 64, (3, 1), (1, 1), "same", activation=tf.nn.relu, use_bias=False, dilation_rate=2)
-        # layer3 = tf.layers.conv2d(layer_3, 64, (3, 1), (1, 1), "same", activation=tf.nn.relu, use_bias=False, dilation_rate=4)
-        # layer3 = tf.layers.conv2d(layer_3, 64, (3, 1), (1, 1), "same", activation=tf.nn.relu, use_bias=False, dilation_rate=8)
-        # layer3 = tf.layers.conv2d(layer_3, 64, (3, 1), (1, 1), "same", activation=tf.nn.relu, use_bias=False, dilation_rate=16)
-        # conv_gate = tf.layers.conv2d(layer_3)
-        # layer3_out = layer3 * tf.sigmoid(conv_gate)
+        layer = tf.layers.batch_normalization(layer, training=self.is_training)
+        layer = tf.layers.conv2d(layer, 64, (5, 70), (1, 1), "same", activation=tf.nn.relu, use_bias=False)
+        layer = tf.layers.dropout(layer, 0.25, training=self.is_training)
+        residual += layer
+
+        layer = residual
 
         layer = tf.layers.batch_normalization(layer, training=self.is_training)
-        layer = tf.layers.conv2d(layer, 64, (3, 70), (1, 1), "same", activation=tf.nn.relu, use_bias=False)
-        residual += layer
+        layer = tf.layers.conv2d(layer, 1, (10, 1), (1, 1), "same", activation=None, use_bias=False)
+        layer_cut = layer[:, context_size:-context_size, :, :]
+        # layer = tf.layers.conv2d(layer, 1, (10, 1), (1, 1), "same", activation=None, use_bias=True)
 
-        print(residual.shape)
-        residual = residual[:, 7:-7, :, :]
-        print(residual.shape)
+        note_output = tf.squeeze(layer_cut, -1)
+        print(note_output.shape)
+        self.note_logits = note_output
 
-        layer = tf.layers.batch_normalization(residual, training=self.is_training)
-        layer = tf.layers.conv2d(layer, 1, (1, 1), (1, 1), "same", activation=None, use_bias=False)
+    with tf.name_scope('model_voicing'):
+        voicing_input = tf.concat([tf.stop_gradient(layer), spectrogram], axis=-1)
+        # voicing_input = spectrogram
+        print(voicing_input.shape)
+        voicing_layer = tf.layers.conv2d(voicing_input, 64, (5, 5), (1, 1), "same", activation=tf.nn.relu, use_bias=False)
+        voicing_layer = tf.layers.dropout(voicing_layer, 0.25, training=self.is_training)
+        voicing_layer = tf.layers.batch_normalization(voicing_layer, training=self.is_training)
 
-    output_layer = tf.squeeze(layer, -1)
-    print(output_layer.shape)
+        voicing_layer = tf.layers.conv2d(voicing_layer, 64, (5, 70), (1, 5), "same", activation=tf.nn.relu, use_bias=False)
+        voicing_layer = tf.layers.dropout(voicing_layer, 0.25, training=self.is_training)
+        voicing_layer = tf.layers.batch_normalization(voicing_layer, training=self.is_training)
 
-    # if output_layer.shape.as_list() != [None, self.annotations_per_window, self.bin_count]:
-    #     print("shape not compatible, adding FC layer")
-    #     output_layer = tf.nn.relu(output_layer)
-    #     output_layer = tf.layers.flatten(output_layer)
-    #     output_layer = tf.layers.dense(output_layer, self.annotations_per_window*self.bin_count, activation=None, bias_regularizer=tf.nn.l2_loss, kernel_regularizer=tf.nn.l2_loss)
-    #     output_layer = tf.reshape(output_layer, [-1, self.annotations_per_window, self.bin_count])
+        voicing_layer = tf.layers.conv2d(voicing_layer, 64, (5, 12), (1, 12), "same", activation=tf.nn.relu, use_bias=False)
+        voicing_layer = tf.layers.dropout(voicing_layer, 0.25, training=self.is_training)
+        voicing_layer = tf.layers.batch_normalization(voicing_layer, training=self.is_training)
 
-    self.note_logits = output_layer
+        voicing_layer = tf.layers.conv2d(voicing_layer, 64, (15, 3), (1, 1), "same", activation=tf.nn.relu, use_bias=False)
+        voicing_layer = tf.layers.dropout(voicing_layer, 0.25, training=self.is_training)
+        voicing_layer = tf.layers.batch_normalization(voicing_layer, training=self.is_training)
+
+        print(voicing_layer.shape)
+        voicing_layer = tf.layers.conv2d(voicing_layer, 1, (1, 6), (1, 1), "valid", activation=None, use_bias=True)
+        cut_layer = voicing_layer[:, context_size:-context_size, :, :]
+        print(cut_layer.shape)
+        self.voicing_logits = tf.squeeze(cut_layer)
 
     self.loss = common.loss(self, args)
     self.est_notes = common.est_notes(self, args)
@@ -82,15 +96,17 @@ def create_model(self, args):
 
 def parse_args(argv):
     parser = common.common_arguments({
-        "samplerate": 22050, "context_width": 7*HOP_LENGTH, "annotations_per_window": 10, "hop_size": 10, "frame_width": HOP_LENGTH,
-        "note_range": 72, "min_note": 24
+        "samplerate": 22050, "context_width": 14*HOP_LENGTH, "annotations_per_window": 20, "hop_size": 1, "frame_width": HOP_LENGTH,
+        "note_range": 72, "min_note": 24,
+        "evaluate_every": 5000,
+        "evaluate_small_every": 1000,
     })
     # Model specific arguments
     parser.add_argument("--spectrogram", default="cqt", type=str, help="Postprocessing layer")
 
     args = parser.parse_args(argv)
 
-    common.name(args, "cqt_resid")
+    common.name(args, "cqt_voicing_residual_batchnorm")
 
     return args
 
@@ -126,18 +142,11 @@ def construct(args):
 
             return (log_hcqt*65535).astype(np.uint16)
 
-            # cqt = librosa.core.cqt(audio, samplerate, hop_length=HOP_LENGTH, fmin=FMIN, n_bins=N_BINS, bins_per_octave=BINS_PER_OCTAVE)
-            # # log scaling
-            # cqt = librosa.amplitude_to_db(np.abs(cqt), ref=np.max)
-            # # uint8 compression
-            # cqt = ((cqt/80+1)*255).astype(np.uint8)
-            # return cqt
-
         spectrogram_thumb = "hcqt-fmin{}-oct{}-octbins{}-hop{}-db-uint16".format(FMIN, N_BINS/BINS_PER_OCTAVE, BINS_PER_OCTAVE, HOP_LENGTH)
 
         def preload_fn(aa):
-            aa.annotation.resample(256/22050)
-            return aa.audio.load_resampled_audio(args.samplerate).load_spectrogram(spec_function, spectrogram_thumb, HOP_LENGTH)
+            aa.annotation = datasets.Annotation.from_time_series(*aa.annotation, 512)
+            aa.audio.load_resampled_audio(args.samplerate).load_spectrogram(spec_function, spectrogram_thumb, HOP_LENGTH)
 
         def dataset_transform(tf_dataset, dataset):
             return tf_dataset.map(dataset.prepare_example, num_parallel_calls=args.threads).batch(args.batch_size_evaluation).prefetch(10)

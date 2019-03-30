@@ -113,11 +113,11 @@ def construct(args):
         # augment_audio = augment_audio_basa.samples*10 + augment_audio_perkuse.samples*10
 
         def dataset_transform(tf_dataset, dataset):
-            return tf_dataset.map(dataset.prepare_example).batch(args.batch_size_evaluation).prefetch(1)
+            return tf_dataset.map(dataset.prepare_example).batch(args.batch_size_evaluation).prefetch(10)
             # return tf_dataset.map(dataset.prepare_example).map(dataset.mix_example_with(augment_audio)).batch(args.batch_size_evaluation).prefetch(1)
 
         def dataset_transform_train(tf_dataset, dataset):
-            return tf_dataset.shuffle(10**5).map(dataset.prepare_example, num_parallel_calls=4).filter(dataset.is_example_voiced).batch(args.batch_size).prefetch(1)
+            return tf_dataset.shuffle(10**5).map(dataset.prepare_example, num_parallel_calls=4).filter(dataset.is_example_voiced).batch(args.batch_size).prefetch(10)
 
         train_dataset, test_datasets, validation_datasets = common.prepare_datasets(args.datasets, args, preload_fn, dataset_transform, dataset_transform_train)
 

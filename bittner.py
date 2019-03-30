@@ -1,7 +1,4 @@
 import tensorflow as tf
-from tensorflow.keras import layers
-# from tensorflow.keras import backend as K
-
 
 import numpy as np
 
@@ -12,6 +9,9 @@ import sys
 import common
 
 import librosa
+import evaluation
+
+from model import VD, VisualOutputHook, MetricsHook, SaveBestModelHook, EvaluationHook
 
 # cqt
 HOP_LENGTH = 256
@@ -20,79 +20,110 @@ FMIN = 32.7
 BINS_PER_OCTAVE = 60
 N_BINS = BINS_PER_OCTAVE*6
 
+
 def create_model(self, args):
-    # window = self.window
-    # window = common.input_normalization(window, args)
-    # window_with_channel = tf.expand_dims(window, axis=2)
 
-    layer_confs = [
-        (128, (5, 5), tf.nn.relu),
-        (64, (5, 5), tf.nn.relu),
-        (64, (3, 3), tf.nn.relu),
-        (64, (3, 3), tf.nn.relu),
-        (8, (3, 70), tf.nn.relu),
-        (1, (1, 1), None),
-    ]
+    self.spectrogram.set_shape([None, len(HARMONICS), N_BINS, args.annotations_per_window + 2*args.context_width/HOP_LENGTH])
 
-    self.spectrogram.set_shape([None, len(HARMONICS), N_BINS, args.annotations_per_window])
     spectrogram = self.spectrogram
     spectrogram = tf.transpose(spectrogram, [0, 3, 2, 1])
 
-    print(spectrogram.shape)
-    layer = spectrogram
-
-    # tf.summary.image("spectrogram", spectrogram)
-    # layer = layer + 0.001*layer*tf.sigmoid(tf.Variable(1.0))
-    # layer = tf.layers.conv2d(layer, 1, (1, 1), (1, 1), "same", activation=None)
-
     with tf.name_scope('model'):
-        # layer = tf.layers.batch_normalization(layer, training=self.is_training)
-        for filters, kernel_size, activation in layer_confs:
-            layer = tf.layers.batch_normalization(layer, training=self.is_training)
-            layer = tf.layers.conv2d(layer, filters, kernel_size, (1, 1), "same", activation=activation, use_bias=False)
-            # if activation is not None:
-            #     layer = activation(layer)
+        layer = spectrogram
+        layer = tf.layers.batch_normalization(spectrogram, training=self.is_training)
+        layer = tf.layers.conv2d(layer, 128, (5, 5), (1, 1), "same", activation=tf.nn.relu)
+        layer = tf.layers.batch_normalization(layer, training=self.is_training)
+        layer = tf.layers.conv2d(layer, 64, (5, 5), (1, 1), "same", activation=tf.nn.relu)
+        layer = tf.layers.batch_normalization(layer, training=self.is_training)
+        layer = tf.layers.conv2d(layer, 64, (3, 3), (1, 1), "same", activation=tf.nn.relu)
+        layer = tf.layers.batch_normalization(layer, training=self.is_training)
+        layer = tf.layers.conv2d(layer, 64, (3, 3), (1, 1), "same", activation=tf.nn.relu)
+        layer = tf.layers.batch_normalization(layer, training=self.is_training)
+        layer = tf.layers.conv2d(layer, 8, (3, 70), (1, 1), "same", activation=tf.nn.relu)
+        layer = tf.layers.batch_normalization(layer, training=self.is_training)
+        layer = tf.layers.conv2d(layer, 1, (1, 1), (1, 1), "same", activation=tf.nn.sigmoid)
 
-    print(layer.shape)
+        note_output = tf.squeeze(layer, -1)
+        print(note_output.shape)
+        self.note_logits = note_output
+        self.note_probabilities = note_output
 
-    # bottom_padding = int(librosa.core.hz_to_midi(FMIN) * args.bins_per_semitone) - args.min_note*args.bins_per_semitone
-    # top_padding = int(self.bin_count - N_BINS - bottom_padding)
+    annotations = self.annotations[:, :, 0] - args.min_note
+    voicing_ref = tf.cast(tf.greater(annotations, 0), tf.float32)
 
-    # print("paddings:", bottom_padding, top_padding)
+    note_ref = tf.tile(tf.reshape(annotations, [-1, self.annotations_per_window, 1]), [1, 1, self.bin_count])
+    ref_probabilities = tf.exp(-(note_ref-self.note_bins)**2/(args.annotation_smoothing**2))
 
-    # layer = tf.pad(layer, ((0, 0), (0, 0), (bottom_padding, top_padding), (0, 0)))
+    voicing_weights = tf.tile(tf.expand_dims(voicing_ref, -1), [1, 1, self.bin_count])
+    ref_probabilities *= voicing_weights
 
-    output_layer = tf.squeeze(layer, -1)
-    print(output_layer.shape)
+    def bkld(y_true, y_pred):
+        """KL Divergence where both y_true an y_pred are probabilities
+        """
+        epsilon = tf.constant(1e-07)
+        y_true = tf.clip_by_value(y_true, epsilon, 1.0 - epsilon)
+        y_pred = tf.clip_by_value(y_pred, epsilon, 1.0 - epsilon)
+        return tf.math.reduce_mean(-1.0*y_true * tf.log(y_pred) - (1.0 - y_true) * tf.log(1.0 - y_pred))
+    
+    self.voicing_threshold = tf.Variable(0.15, trainable=False)
+    tf.summary.scalar("model/voicing_threshold", self.voicing_threshold)
 
-    # if output_layer.shape.as_list() != [None, self.annotations_per_window, self.bin_count]:
-    #     print("shape not compatible, adding FC layer")
-    #     output_layer = tf.nn.relu(output_layer)
-    #     output_layer = tf.layers.flatten(output_layer)
-    #     output_layer = tf.layers.dense(output_layer, self.annotations_per_window*self.bin_count, activation=None, bias_regularizer=tf.nn.l2_loss, kernel_regularizer=tf.nn.l2_loss)
-    #     output_layer = tf.reshape(output_layer, [-1, self.annotations_per_window, self.bin_count])
+    self.loss = bkld(ref_probabilities, self.note_probabilities)
 
-    self.note_logits = output_layer
-
-    self.loss = common.loss(self, args)
     self.est_notes = common.est_notes(self, args)
-    self.training = common.optimizer(self, args)
+
+    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+    with tf.control_dependencies(update_ops):
+        learning_rate = tf.train.exponential_decay(args.learning_rate, self.global_step, 30000, 0.9, True)
+        tf.summary.scalar("model/learning_rate", learning_rate)
+        self.training = tf.train.AdamOptimizer(learning_rate).minimize(self.loss, global_step=self.global_step)
+
 
 
 def parse_args(argv):
     parser = common.common_arguments({
-        "samplerate": 22050, "context_width": 0, "annotations_per_window": 50, "hop_size": 10, "frame_width": 256,
-        "note_range": 72, "min_note": 24
+        "samplerate": 22050, "context_width": 0, "annotations_per_window": 50, "hop_size": 1
+        , "frame_width": HOP_LENGTH,
+        "note_range": 72, "min_note": 24,
+        "evaluate_every": 5000,
+        "evaluate_small_every": 1000,
     })
     # Model specific arguments
     parser.add_argument("--spectrogram", default="cqt", type=str, help="Postprocessing layer")
 
     args = parser.parse_args(argv)
 
-    common.name(args, "bittner_batchnorm")
+    common.name(args, "bittner")
 
     return args
 
+
+class AdjustVoicingHook(EvaluationHook):
+    def before_run(self, ctx, vd):
+        return [ctx.est_notes_confidence]
+
+    def after_run(self, ctx, vd, additional):
+        print("Adjusting voicing threshold")
+        # np.save(vd.name+"_est_notes.npy", np.concatenate(list(additional[ctx.est_notes].values())) )
+        # np.save(vd.name+"_est_notes_confidence.npy", np.concatenate(list(additional[ctx.est_notes_confidence].values())))
+        # all_ref = np.concatenate([aa.annotation.freqs for aa in vd.dataset._annotated_audios])
+        # np.save(vd.name+"_ref.npy", all_ref)
+
+        thresholds = np.arange(0.0, 1.0, 0.01)
+        results = []
+        for threshold in thresholds:
+            threshold_results = []
+            for uid, est_notes_confidence in additional[ctx.est_notes_confidence].items():
+                aa = vd.dataset.get_annotated_audio_by_uid(uid)
+                ref_voicing = aa.annotation.voicing
+                est_voicing = est_notes_confidence > threshold
+                voicing_accuracy = evaluation.melody.voicing_accuracy(ref_voicing, est_voicing)
+                threshold_results.append(voicing_accuracy)
+            results.append(np.mean(threshold_results))
+
+        best_threshold = thresholds[np.argmax(results)]
+        print("New voicing threshold {:.2f} {:.3f}".format(best_threshold, np.max(results)))
+        ctx.voicing_threshold.load(best_threshold, ctx.session)
 
 def construct(args):
     network = NetworkMelody(args)
@@ -140,13 +171,12 @@ def construct(args):
 
         def dataset_transform(tf_dataset, dataset):
             return tf_dataset.map(dataset.prepare_example, num_parallel_calls=args.threads).batch(args.batch_size_evaluation).prefetch(10)
-            # return tf_dataset.map(dataset.prepare_example).batch(args.batch_size_evaluation)
 
         def dataset_transform_train(tf_dataset, dataset):
             return tf_dataset.shuffle(10**5).map(dataset.prepare_example, num_parallel_calls=args.threads).batch(args.batch_size).prefetch(10)
-            # return tf_dataset.shuffle(10**5).map(dataset.prepare_example).batch(args.batch_size)
 
-        train_dataset, test_datasets, validation_datasets = common.prepare_datasets(args.datasets, args, preload_fn, dataset_transform, dataset_transform_train)
+        valid_hooks = [MetricsHook(write_estimations=True), VisualOutputHook(False, False, True, True), SaveBestModelHook(args.logdir), AdjustVoicingHook()]
+        train_dataset, test_datasets, validation_datasets = common.prepare_datasets(args.datasets, args, preload_fn, dataset_transform, dataset_transform_train, valid_hooks=valid_hooks)
 
         network.construct(args, create_model, train_dataset.dataset.output_types, train_dataset.dataset.output_shapes)
 
