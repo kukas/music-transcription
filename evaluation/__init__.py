@@ -76,22 +76,33 @@ def get_dataset_list():
         ),
     ]
 
-def evaluate_dataset_melody(refs, ests, per_track_info=False):
+
+def load_melody_paths(refs, ests):
+    refs = sorted(refs)
+    ests = sorted(ests)
+
+    all_data = []
+    for ref, est in zip(refs, ests):
+        if not os.path.exists(ref) or not os.path.exists(est):
+            if all_data != []:
+                raise ValueError("Estimation or reference files not complete.")
+            continue
+
+        filename = os.path.splitext(os.path.basename(ref))[0]
+
+        ref_time, ref_freq = mir_eval.io.load_time_series(ref, delimiter='\\s+|,')
+        est_time, est_freq = mir_eval.io.load_time_series(est, delimiter='\\s+|,')
+
+        all_data.append((filename, (ref_time, ref_freq, est_time, est_freq)))
+
+    return all_data
+
+def evaluate_melody_paths(refs, ests, per_track_info=False):
     refs = sorted(refs)
     ests = sorted(ests)
 
     all_scores = []
-    for ref, est in zip(refs, ests):
-        filename = os.path.splitext(os.path.basename(ref))[0]
-
-        if not os.path.exists(ref) or not os.path.exists(est):
-            if all_scores != []:
-                raise ValueError("Estimation or reference files not complete.")
-            continue
-        
-        ref_time, ref_freq = mir_eval.io.load_time_series(ref, delimiter='\\s+|,')
-        est_time, est_freq = mir_eval.io.load_time_series(est, delimiter='\\s+|,')
-        
+    for filename, (ref_time, ref_freq, est_time, est_freq) in load_melody_paths(refs, ests):
         scores = mir_eval.melody.evaluate(ref_time, ref_freq, est_time, est_freq)
         scores["Track"] = filename
         all_scores.append(scores)
@@ -111,36 +122,38 @@ def evaluate_dataset_melody(refs, ests, per_track_info=False):
 
     return all_scores
 
-def results(method, path, est_suffix=".csv"):
-    results = []
-    # Iterates through the datasets
+def paths_iterator(method, path, est_suffix):
     for (prefix, split, dataset_name, dataset_iterator) in get_dataset_list():
         # List of the paths to reference annotations
-        annot_paths = map(lambda x: x.annot_path, dataset_iterator)
+        ref_paths = map(lambda x: x.annot_path, dataset_iterator)
         audio_names = map(lambda x: os.path.splitext(os.path.basename(x.audio_path))[0], dataset_iterator)
 
         ests_dir = "{}-{}-melody-outputs".format(prefix, method)
         if os.path.exists(join(path, ests_dir)):
             # List of the paths to estimation annotations
             est_paths = [join(path, ests_dir, name+est_suffix) for name in audio_names]
-            if not all(os.path.exists(path) for path in est_paths):
-                continue
+            if all(os.path.exists(path) for path in est_paths):
+                yield (prefix, split, dataset_name, ref_paths, est_paths)
 
-            est_last_access = max(os.path.getmtime(path) for path in est_paths)
-            saved_results_path = join(path, "eval-{}_{}-{}.pkl".format(prefix, split, est_last_access))
-            if os.path.exists(saved_results_path):
-                result = pandas.read_pickle(saved_results_path)
+def results(method, path, est_suffix=".csv"):
+    results = []
+    # Iterates through the datasets
+    for prefix, split, dataset_name, ref_paths, est_paths in paths_iterator(method, path, est_suffix):
+        est_last_access = max(os.path.getmtime(path) for path in est_paths)
+        saved_results_path = join(path, "eval-{}_{}-{}.pkl".format(prefix, split, est_last_access))
+        if os.path.exists(saved_results_path):
+            result = pandas.read_pickle(saved_results_path)
+            results.append(result)
+        else:
+            result = evaluate_melody_paths(ref_paths, est_paths)
+            if result:
+                result = pandas.DataFrame(result)
+                result["Prefix"] = prefix
+                result["Split"] = split
+                result["Dataset"] = dataset_name
                 results.append(result)
-            else:
-                result = evaluate_dataset_melody(annot_paths, est_paths)
-                if result:
-                    result = pandas.DataFrame(result)
-                    result["Prefix"] = prefix
-                    result["Split"] = split
-                    result["Dataset"] = dataset_name
-                    results.append(result)
 
-                    result.to_pickle(saved_results_path)
+                result.to_pickle(saved_results_path)
     if not results:
         return pandas.DataFrame()
     return pandas.concat(results)

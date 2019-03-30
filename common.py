@@ -236,7 +236,6 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
             VD(datasets.medleydb.prefix, medleydb_validation_dataset, args.evaluate_every, valid_hooks),
         ]
         test_datasets += [
-            # VD("small_"+datasets.medleydb.prefix, medleydb_small_validation_dataset, 0, test_hooks),
             VD(datasets.medleydb.prefix, medleydb_test_dataset, 0, test_hooks),
             VD(datasets.medleydb.prefix, medleydb_validation_dataset, 0, test_hooks),
         ]
