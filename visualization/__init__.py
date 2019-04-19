@@ -74,20 +74,20 @@ def draw_notes(ref, est, title=None, dynamic_figsize=True, note_probs=None):
                                                                                            for n_ref in fref]) and len(fref) > 0] for fref, fest in zip(ref, est)])
     indices_ref_rest, ref_rest = flatten(ref)
 
-    ms = 2
+    ms = 1
     style = "."
-    axs[0].plot(indices_ref_rest, ref_rest, style, color="#2C4251", label="REF", markersize=ms)
+    axs[0].plot(indices_ref_rest, ref_rest, style, color="#161925", label="REF", markersize=4)
     axs[0].plot(indices_unvoiced_incorrect, unvoiced_incorrect, style, color="#247BA0", label="EST voicing error", markersize=ms)
-    axs[0].plot(indices_incorrect_chroma, incorrect_chroma, style, color="#CFA237", label="EST octave error", markersize=ms)
-    axs[0].plot(indices_incorrect, incorrect, style, color="#BA314A", label="EST incorrect", markersize=ms)
-    axs[0].plot(indices_correct, correct, style, color="#419379", label="EST correct", markersize=ms)
+    axs[0].plot(indices_incorrect_chroma, incorrect_chroma, style, color="#F4A745", label="EST octave error", markersize=ms)
+    axs[0].plot(indices_incorrect, incorrect, style, color="#FF4365", label="EST incorrect", markersize=ms)
+    axs[0].plot(indices_correct, correct, style, color="#02C39A", label="EST correct", markersize=ms)
 
     if indices_correct_negative:
-        axs[0].plot(indices_correct_negative, correct_negative, "v", color="#B3E6D6", label="EST correct negative", markersize=ms)
+        axs[0].plot(indices_correct_negative, correct_negative, style, color="#D1F4EC", label="EST correct negative", markersize=1)
     if indices_incorrect_negative:
-        axs[0].plot(indices_incorrect_negative, incorrect_negative, "v", color="#F3909A", label="EST incorrect negative", markersize=ms)
+        axs[0].plot(indices_incorrect_negative, incorrect_negative, style, color="#FFCBD5", label="EST incorrect negative", markersize=1)
     if indices_incorrect_chroma_negative:
-        axs[0].plot(indices_incorrect_chroma_negative, incorrect_chroma_negative, "v", color="#F2DCA6", label="EST octave error negative", markersize=ms)
+        axs[0].plot(indices_incorrect_chroma_negative, incorrect_chroma_negative, style, color="#FADEB9", label="EST octave error negative", markersize=1)
 
     axs[0].legend()
 

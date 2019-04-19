@@ -130,6 +130,12 @@ class MetricsHook(EvaluationHook):
         ref_v = ref_freq > 0
         est_v = est_freq > 0
 
+        cent_voicing = mir_eval.melody.to_cent_voicing(ref_time, ref_freq, est_time, est_freq)
+        metrics["Raw Pitch Accuracy 25 cent"] = mir_eval.melody.raw_chroma_accuracy(*cent_voicing, cent_tolerance=25)
+        metrics["Raw Chroma Accuracy 25 cent"] = mir_eval.melody.raw_pitch_accuracy(*cent_voicing, cent_tolerance=25)
+        metrics["Raw Pitch Accuracy 10 cent"] = mir_eval.melody.raw_chroma_accuracy(*cent_voicing, cent_tolerance=10)
+        metrics["Raw Chroma Accuracy 10 cent"] = mir_eval.melody.raw_pitch_accuracy(*cent_voicing, cent_tolerance=10)
+
         est_freq, est_v = mir_eval.melody.resample_melody_series(est_time, est_freq, est_v, ref_time, "linear")
 
         metrics["Raw 2 Harmonic Accuracy"] = evaluation.melody.raw_harmonic_accuracy(ref_v, ref_freq, est_v, est_freq, harmonics=2)
@@ -186,7 +192,7 @@ class SaveBestModelHook(EvaluationHook):
     def __init__(self, logdir):
         self.best_value = -1
         self.logdir = logdir
-        self.watch_metric = "Overall Accuracy"
+        self.watch_metric = "Raw Pitch Accuracy"
 
     def after_run(self, ctx, vd, additional):
         self.model_name = "model-best-{}".format(vd.name)

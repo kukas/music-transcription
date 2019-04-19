@@ -25,42 +25,54 @@ def get_dataset_list():
             "test",
             "ORCHSET",
             list(datasets.orchset.generator(join(modulepath, "../data/Orchset")))
-            ),
+        ),
         (
             datasets.adc2004.prefix,
             "test",
             "ADC04",
             list(datasets.adc2004.generator(join(modulepath, "../data/adc2004")))
-            ),
+        ),
         (
             datasets.mirex05.prefix,
             "test",
             "MIREX05",
             list(datasets.mirex05.generator(join(modulepath, "../data/mirex05")))
-            ),
+        ),
         (
             datasets.mdb_melody_synth.prefix,
             "test",
             "MDB-mel-s.",
             list(filter(lambda x: x.track_id in mdb_split["test"], datasets.mdb_melody_synth.generator(join(modulepath, "../data/MDB-melody-synth"))))
-            ),
+        ),
+        (
+            datasets.mdb_stem_synth.prefix,
+            "test",
+            "MDB-stem-s",
+            list(filter(lambda x: x.track_id[:-len("_STEM_xx")] in mdb_split["test"], datasets.mdb_stem_synth.generator(join(modulepath, "../data/MDB-stem-synth"))))
+        ),
         (
             datasets.medleydb.prefix,
             "test",
             "MedleyDB",
             list(filter(lambda x: x.track_id in mdb_split["test"], datasets.medleydb.generator(join(modulepath, "../data/MedleyDB/MedleyDB"))))
-            ),
+        ),
         (
             datasets.wjazzd.prefix,
             "test",
             "WJazzD",
             list(filter(lambda x: x.track_id in wjazzd_split["test"], datasets.wjazzd.generator(join(modulepath, "../data/WJazzD"))))
-            ),
+        ),
         (
             datasets.mdb_melody_synth.prefix,
             "valid",
             "MDB-mel-s. valid.",
             list(filter(lambda x: x.track_id in mdb_split["validation"], datasets.mdb_melody_synth.generator(join(modulepath, "../data/MDB-melody-synth"))))
+        ),
+        (
+            datasets.mdb_stem_synth.prefix,
+            "valid",
+            "MDB-stem-s. valid.",
+            list(filter(lambda x: x.track_id[:-len("_STEM_xx")] in mdb_split["validation"], datasets.mdb_stem_synth.generator(join(modulepath, "../data/MDB-stem-synth"))))
         ),
         (
             datasets.medleydb.prefix,
@@ -104,13 +116,17 @@ def evaluate_melody_paths(refs, ests, per_track_info=False):
     all_scores = []
     for filename, (ref_time, ref_freq, est_time, est_freq) in load_melody_paths(refs, ests):
         scores = mir_eval.melody.evaluate(ref_time, ref_freq, est_time, est_freq)
+
+        ref_v = ref_freq > 0
+        est_v = est_freq > 0
+
+        est_freq, est_v = mir_eval.melody.resample_melody_series(est_time, est_freq, est_v, ref_time, "linear")
+
+        scores["Voicing Accuracy"] = melody.voicing_accuracy(ref_v, est_v)
         scores["Track"] = filename
         all_scores.append(scores)
 
         if per_track_info:
-            est_voicing = est_freq > 0
-            est_freq, est_voicing = mir_eval.melody.resample_melody_series(est_time, est_freq, est_voicing, ref_time, "linear")
-
             ref = datasets.common.melody_to_multif0(datasets.common.hz_to_midi_safe(ref_freq))
             est = datasets.common.melody_to_multif0(datasets.common.hz_to_midi_safe(est_freq))
             vis.draw_notes(ref, est, dynamic_figsize=False)
@@ -140,7 +156,7 @@ def results(method, path, est_suffix=".csv"):
     # Iterates through the datasets
     for prefix, split, dataset_name, ref_paths, est_paths in paths_iterator(method, path, est_suffix):
         est_last_access = max(os.path.getmtime(path) for path in est_paths)
-        saved_results_path = join(path, "eval-{}_{}-{}.pkl".format(prefix, split, est_last_access))
+        saved_results_path = join(path, "eval-{}_{}-{}+VA.pkl".format(prefix, split, est_last_access))
         if os.path.exists(saved_results_path):
             result = pandas.read_pickle(saved_results_path)
             results.append(result)
