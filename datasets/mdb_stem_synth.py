@@ -25,15 +25,17 @@ def prepare(preload_fn, threads=None):
         return filter(lambda x: x.track_id[:-len("_STEM_xx")] in medleydb_split[name], gen)
 
     train_data = load_melody_dataset(prefix, mdb_split("train"))
+    test_data = load_melody_dataset(prefix, mdb_split("test"))
     valid_data = load_melody_dataset(prefix, mdb_split("validation"))
 
-    parallel_preload(preload_fn, train_data+valid_data, threads)
+    parallel_preload(preload_fn, train_data+test_data+valid_data, threads)
 
     small_validation_data = [
-        valid_data[3].slice(30, 40),  # nějaká kytara
-        valid_data[4].slice(38, 50),  # zpěv ženský
-        valid_data[5].slice(55, 65),  # zpěv mužský
-        valid_data[13].slice(130, 140),  # zpěv mužský
+        valid_data[10].slice(0, 20),  # basová kytara
+        valid_data[12].slice(125, 135),  # basová vybrnkávání
+        valid_data[4].slice(40, 50),  # kytara
+        valid_data[0].slice(5, 10),  # zpěv mužský
+        valid_data[15].slice(60, 70),  # zpěv ženský
     ]
 
-    return train_data, valid_data, small_validation_data
+    return train_data, test_data, valid_data, small_validation_data

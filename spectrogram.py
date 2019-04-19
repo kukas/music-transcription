@@ -9,53 +9,75 @@ import common
 
 import librosa
 
-# cqt
-HOP_LENGTH = 256
-HARMONICS = [0.5, 1, 2, 3, 4, 5]
-FMIN = 32.7
-BINS_PER_OCTAVE = 60
-N_BINS = BINS_PER_OCTAVE*6
-
 def create_model(self, args):
-    self.spectrogram.set_shape([None, len(HARMONICS), N_BINS, args.annotations_per_window + 2*args.context_width/HOP_LENGTH])
+    if args.overtone_stacking > 0 or args.undertone_stacking > 0:
+        spectrogram_windows = []
+        print("stacking the spectrogram")
+        for i in [1/(x+2) for x in range(args.undertone_stacking)]+list(range(1,args.overtone_stacking+1)):
+            f_ref = 440  # arbitrary reference frequency
+            hz = f_ref*i
+            interval = librosa.core.hz_to_midi(hz) - librosa.core.hz_to_midi(f_ref)
+            int_bins = int(round(interval*self.bins_per_semitone))
+            spec_layer = self.spectrogram[:, :, max(int_bins, 0):self.bin_count+int_bins, :]
+            print(i, "offset", int_bins, "end", self.bin_count+int_bins, "shape", spec_layer.shape)
+            if int_bins < 0:
+                spec_layer = tf.pad(spec_layer, ((0, 0), (0, 0), (-int_bins, 0), (0, 0)))
 
-    spectrogram = self.spectrogram
-    spectrogram = tf.transpose(spectrogram, [0, 3, 2, 1])
+            spec_layer = tf.pad(spec_layer, ((0, 0), (0, 0), (0, self.bin_count-spec_layer.shape[2]), (0, 0)))
+            print("padded shape", spec_layer.shape)
+            spectrogram_windows.append(spec_layer)
+        spectrogram = tf.concat(spectrogram_windows, axis=-1)
 
-    print(spectrogram.shape)
-    layer = spectrogram
+    else:
+        spectrogram = self.spectrogram[:, :, :360, :]
 
     # layer = tf.pad(layer, ((0, 0), (0, 0), (41, 41), (0, 0)))
-    print(layer.shape)
+    print(spectrogram.shape)
 
-    context_size = int(args.context_width/HOP_LENGTH)
+    context_size = int(self.context_width/self.spectrogram_hop_size)
+
+    if args.activation is not None:
+            activation = getattr(tf.nn, args.activation)
 
     with tf.name_scope('model_pitch'):
+        layer = spectrogram
+
+        layer = tf.layers.conv2d(layer, 8*args.capacity_multiplier, (args.conv_ctx*2+1, 5), (1, 1), "same", activation=None, use_bias=False)
+        # layer = common.regularization(layer, args, training=self.is_training)
         layer = tf.layers.batch_normalization(layer, training=self.is_training)
-        layer = tf.layers.conv2d(layer, 64, (5, 5), (1, 1), "same", activation=tf.nn.relu, use_bias=False)
+        layer = tf.nn.relu(layer)
         layer = tf.layers.dropout(layer, 0.25, training=self.is_training)
+
         residual = layer
+        layer = tf.layers.conv2d(layer, 8*args.capacity_multiplier, (args.conv_ctx*2+1, 5), (1, 1), "same", activation=None, use_bias=False)
+        # layer = common.regularization(layer, args, training=self.is_training)
         layer = tf.layers.batch_normalization(layer, training=self.is_training)
-        layer = tf.layers.conv2d(layer, 64, (5, 5), (1, 1), "same", activation=tf.nn.relu, use_bias=False)
+        layer = tf.nn.relu(layer)
         layer = tf.layers.dropout(layer, 0.25, training=self.is_training)
         residual += layer
+        layer = tf.layers.conv2d(layer, 8*args.capacity_multiplier, (args.conv_ctx*2+1, 3), (1, 1), "same", activation=None, use_bias=False)
+        # layer = common.regularization(layer, args, training=self.is_training)
         layer = tf.layers.batch_normalization(layer, training=self.is_training)
-        layer = tf.layers.conv2d(layer, 64, (9, 3), (1, 1), "same", activation=tf.nn.relu, use_bias=False)
+        layer = tf.nn.relu(layer)
         layer = tf.layers.dropout(layer, 0.25, training=self.is_training)
         residual += layer
+        layer = tf.layers.conv2d(layer, 8*args.capacity_multiplier, (args.conv_ctx*2+1, 3), (1, 1), "same", activation=None, use_bias=False)
+        # layer = common.regularization(layer, args, training=self.is_training)
         layer = tf.layers.batch_normalization(layer, training=self.is_training)
-        layer = tf.layers.conv2d(layer, 64, (9, 3), (1, 1), "same", activation=tf.nn.relu, use_bias=False)
+        layer = tf.nn.relu(layer)
         layer = tf.layers.dropout(layer, 0.25, training=self.is_training)
         residual += layer
+        layer = tf.layers.conv2d(layer, 8*args.capacity_multiplier, (args.conv_ctx*2+1, 70), (1, 1), "same", activation=None, use_bias=False)
+        # layer = common.regularization(layer, args, training=self.is_training)
         layer = tf.layers.batch_normalization(layer, training=self.is_training)
-        layer = tf.layers.conv2d(layer, 64, (5, 70), (1, 1), "same", activation=tf.nn.relu, use_bias=False)
+        layer = tf.nn.relu(layer)
         layer = tf.layers.dropout(layer, 0.25, training=self.is_training)
         residual += layer
 
         layer = residual
-
         layer = tf.layers.batch_normalization(layer, training=self.is_training)
-        layer = tf.layers.conv2d(layer, 1, (10, 1), (1, 1), "same", activation=None, use_bias=False)
+
+        layer = tf.layers.conv2d(layer, 1, (args.last_conv_ctx*2+1, 1), (1, 1), "same", activation=None, use_bias=False)
         layer_cut = layer[:, context_size:-context_size, :, :]
         # layer = tf.layers.conv2d(layer, 1, (10, 1), (1, 1), "same", activation=None, use_bias=True)
 
@@ -63,31 +85,36 @@ def create_model(self, args):
         print(note_output.shape)
         self.note_logits = note_output
 
-    with tf.name_scope('model_voicing'):
-        voicing_input = tf.concat([tf.stop_gradient(layer), spectrogram], axis=-1)
-        # voicing_input = spectrogram
-        print(voicing_input.shape)
-        voicing_layer = tf.layers.conv2d(voicing_input, 64, (5, 5), (1, 1), "same", activation=tf.nn.relu, use_bias=False)
-        voicing_layer = tf.layers.dropout(voicing_layer, 0.25, training=self.is_training)
-        voicing_layer = tf.layers.batch_normalization(voicing_layer, training=self.is_training)
+    if args.voicing:
+        with tf.name_scope('model_voicing'):
+            voicing_layer = tf.concat([tf.stop_gradient(layer), spectrogram], axis=-1)
 
-        voicing_layer = tf.layers.conv2d(voicing_layer, 64, (5, 70), (1, 5), "same", activation=tf.nn.relu, use_bias=False)
-        voicing_layer = tf.layers.dropout(voicing_layer, 0.25, training=self.is_training)
-        voicing_layer = tf.layers.batch_normalization(voicing_layer, training=self.is_training)
+            note = int(int(voicing_layer.shape[2])/6/12)
 
-        voicing_layer = tf.layers.conv2d(voicing_layer, 64, (5, 12), (1, 12), "same", activation=tf.nn.relu, use_bias=False)
-        voicing_layer = tf.layers.dropout(voicing_layer, 0.25, training=self.is_training)
-        voicing_layer = tf.layers.batch_normalization(voicing_layer, training=self.is_training)
+            voicing_layer = tf.layers.conv2d(voicing_layer, 8*args.voicing_capacity_multiplier, (args.voicing_conv_ctx*2+1, note), (1, 1), "same", activation=activation)
+            voicing_layer = common.regularization(voicing_layer, args, training=self.is_training)
 
-        voicing_layer = tf.layers.conv2d(voicing_layer, 64, (15, 3), (1, 1), "same", activation=tf.nn.relu, use_bias=False)
-        voicing_layer = tf.layers.dropout(voicing_layer, 0.25, training=self.is_training)
-        voicing_layer = tf.layers.batch_normalization(voicing_layer, training=self.is_training)
+            voicing_layer = tf.layers.conv2d(voicing_layer, 8*args.voicing_capacity_multiplier, (args.voicing_conv_ctx*2+1, note), (1, note), "same", activation=activation)
+            voicing_layer = common.regularization(voicing_layer, args, training=self.is_training)
 
-        print(voicing_layer.shape)
-        voicing_layer = tf.layers.conv2d(voicing_layer, 1, (1, 6), (1, 1), "valid", activation=None, use_bias=True)
-        cut_layer = voicing_layer[:, context_size:-context_size, :, :]
-        print(cut_layer.shape)
-        self.voicing_logits = tf.squeeze(cut_layer)
+            octave = int(int(voicing_layer.shape[2])/6)
+            voicing_layer = tf.layers.conv2d(voicing_layer, 8*args.voicing_capacity_multiplier, (args.voicing_conv_ctx*2+1, octave), (1, 1), "same", activation=activation)
+            voicing_layer = common.regularization(voicing_layer, args, training=self.is_training)
+
+            voicing_layer = tf.layers.conv2d(voicing_layer, 8*args.voicing_capacity_multiplier, (args.voicing_conv_ctx*2+1, octave), (1, octave), "same", activation=activation)
+            voicing_layer = common.regularization(voicing_layer, args, training=self.is_training)
+
+            print("adding last conv valid layer")
+            print("model output", voicing_layer.shape)
+            if args.voicing_last_conv_ctx:
+                voicing_layer = tf.pad(voicing_layer, ((0, 0), (args.voicing_last_conv_ctx, args.voicing_last_conv_ctx), (0, 0), (0, 0)))
+                print("padded", voicing_layer.shape)
+            voicing_layer = tf.layers.conv2d(voicing_layer, 1, (args.voicing_last_conv_ctx*2+1, voicing_layer.shape[2]), (1, 1), "valid", activation=None, use_bias=True)
+            print("last conv output", voicing_layer.shape)
+            voicing_layer = voicing_layer[:, context_size:-context_size, :, :]
+            print("cut context", voicing_layer.shape)
+            self.voicing_logits = tf.squeeze(voicing_layer)
+            print("squeeze", voicing_layer.shape)
 
     self.loss = common.loss(self, args)
     self.est_notes = common.est_notes(self, args)
@@ -95,14 +122,30 @@ def create_model(self, args):
 
 
 def parse_args(argv):
+    hop_length = 512
     parser = common.common_arguments({
-        "samplerate": 22050, "context_width": 14*HOP_LENGTH, "annotations_per_window": 20, "hop_size": 1, "frame_width": HOP_LENGTH,
+        "samplerate": 44100, "context_width": 10*hop_length, "annotations_per_window": 20, "hop_size": 1, "frame_width": hop_length,
         "note_range": 72, "min_note": 24,
         "evaluate_every": 5000,
         "evaluate_small_every": 1000,
     })
     # Model specific arguments
     parser.add_argument("--spectrogram", default="cqt", type=str, help="Postprocessing layer")
+    parser.add_argument("--capacity_multiplier", default=8, type=int, help="Capacity")
+    parser.add_argument("--voicing_capacity_multiplier", default=8, type=int, help="Capacity")
+    parser.add_argument("--undertone_stacking", default=1, type=int, help="spectrogram stacking")
+    parser.add_argument("--overtone_stacking", default=5, type=int, help="spectrogram stacking")
+
+    parser.add_argument("--voicing", action='store_true', help="Add voicing model.")
+
+    parser.add_argument("--conv_ctx", default=0, type=int)
+    parser.add_argument("--last_conv_ctx", default=0, type=int)
+    parser.add_argument("--voicing_conv_ctx", default=0, type=int)
+    parser.add_argument("--voicing_last_conv_ctx", default=0, type=int)
+    parser.add_argument("--batchnorm", default=0, type=int)
+    parser.add_argument("--dropout", default=0.3, type=float)
+    parser.add_argument("--activation", default="relu", type=str)
+
 
     args = parser.parse_args(argv)
 
@@ -115,38 +158,11 @@ def construct(args):
     network = NetworkMelody(args)
 
     with network.session.graph.as_default():
-        def spec_function(audio, samplerate):
-
-            cqt_list = []
-            shapes = []
-            for h in HARMONICS:
-                cqt = librosa.cqt(
-                    audio, sr=samplerate, hop_length=HOP_LENGTH, fmin=FMIN*float(h),
-                    n_bins=N_BINS,
-                    bins_per_octave=BINS_PER_OCTAVE
-                )
-                cqt_list.append(cqt)
-                shapes.append(cqt.shape)
-
-            shapes_equal = [s == shapes[0] for s in shapes]
-            if not all(shapes_equal):
-                print("NOT ALL", shapes_equal)
-                min_time = np.min([s[1] for s in shapes])
-                new_cqt_list = []
-                for i in range(len(cqt_list)):
-                    new_cqt_list.append(cqt_list[i][:, :min_time])
-                cqt_list = new_cqt_list
-
-            log_hcqt = ((1.0/80.0) * librosa.core.amplitude_to_db(
-                np.abs(np.array(cqt_list)), ref=np.max)) + 1.0
-
-            return (log_hcqt*65535).astype(np.uint16)
-
-        spectrogram_thumb = "hcqt-fmin{}-oct{}-octbins{}-hop{}-db-uint16".format(FMIN, N_BINS/BINS_PER_OCTAVE, BINS_PER_OCTAVE, HOP_LENGTH)
+        spectrogram_function, spectrogram_thumb, spectrogram_info = common.spectrograms(args)
 
         def preload_fn(aa):
-            aa.annotation = datasets.Annotation.from_time_series(*aa.annotation, 512)
-            aa.audio.load_resampled_audio(args.samplerate).load_spectrogram(spec_function, spectrogram_thumb, HOP_LENGTH)
+            aa.annotation = datasets.Annotation.from_time_series(*aa.annotation, args.frame_width*args.samplerate/44100)
+            aa.audio.load_resampled_audio(args.samplerate).load_spectrogram(spectrogram_function, spectrogram_thumb, spectrogram_info[2])
 
         def dataset_transform(tf_dataset, dataset):
             return tf_dataset.map(dataset.prepare_example, num_parallel_calls=args.threads).batch(args.batch_size_evaluation).prefetch(10)
@@ -156,7 +172,7 @@ def construct(args):
 
         train_dataset, test_datasets, validation_datasets = common.prepare_datasets(args.datasets, args, preload_fn, dataset_transform, dataset_transform_train)
 
-        network.construct(args, create_model, train_dataset.dataset.output_types, train_dataset.dataset.output_shapes)
+        network.construct(args, create_model, train_dataset.dataset.output_types, train_dataset.dataset.output_shapes, spectrogram_info=spectrogram_info)
 
     return network, train_dataset, validation_datasets, test_datasets
 

@@ -18,9 +18,10 @@ from mem_top import mem_top
 
 import tensorflow as tf
 
-
 VD = namedtuple("ValidationDataset", ["name", "dataset", "evaluate_every", "hooks"])
 
+def safe_div(numerator, denominator):
+    return tf.where(tf.less(denominator, 1e-7), denominator, numerator/denominator)
 
 class Network:
     def __init__(self, args, seed=42):
@@ -38,7 +39,7 @@ class Network:
                                 intra_op_parallelism_threads=args.threads)
         self.session = tf.Session(graph=graph, config=config)
 
-    def construct(self, args, create_model, output_types, output_shapes, create_summaries=None, dataset_preload_fn=None, dataset_transform=None):
+    def construct(self, args, create_model, output_types, output_shapes, create_summaries=None, spectrogram_info=None):
         self.args = args
         self.logdir = args.logdir
         self.note_range = args.note_range
@@ -52,32 +53,36 @@ class Network:
         self.window_size = self.annotations_per_window*self.frame_width + 2*self.context_width
 
         self.spectrogram_shape = None
-        if "spectrogram_shape" in args:
-            self.spectrogram_shape = args.spectrogram_shape
-
-        self.dataset_preload_fn = dataset_preload_fn
-        self.dataset_transform = dataset_transform
+        self.spectrogram_hop_size = None
+        if spectrogram_info is not None:
+            channels, freq_bins, self.spectrogram_hop_size = spectrogram_info
+            
+            width = self.annotations_per_window + 2*self.context_width/self.spectrogram_hop_size
+            self.spectrogram_shape = [channels, freq_bins, width]
 
         with self.session.graph.as_default():
             # Inputs
             self.handle = tf.placeholder(tf.string, shape=[])
             self.iterator = tf.data.Iterator.from_string_handle(self.handle, output_types, output_shapes)
 
-            self.window_int16, self.spectrogram_uint16, self.annotations, self.times, self.audio_uid = self.iterator.get_next()
+            with tf.name_scope("input"):
 
-            self.window = tf.cast(self.window_int16, tf.float32)/32768.0
-            self.spectrogram = tf.cast(self.spectrogram_uint16, tf.float32)/65536.0
+                self.window_int16, self.spectrogram_uint16, self.annotations, self.times, self.audio_uid = self.iterator.get_next()
 
-            # if self.spectrogram_shape is not None:
-            #     self.spectrogram = tf.placeholder(tf.float32, [None, self.spectrogram_shape[0], self.spectrogram_shape[1]], name="spectrogram")
+                self.window = tf.cast(self.window_int16, tf.float32)/32768.0
+                self.spectrogram = tf.cast(self.spectrogram_uint16, tf.float32)/65536.0
 
-            self.is_training = tf.placeholder(tf.bool, [], name="is_training")
+                if self.spectrogram_shape is not None:
+                    self.spectrogram.set_shape([None]+self.spectrogram_shape)
+                    self.spectrogram = tf.transpose(self.spectrogram, [0, 3, 2, 1])
 
-            self.global_step = tf.train.create_global_step()
+                self.is_training = tf.placeholder(tf.bool, [], name="is_training")
 
-            batch_size = tf.shape(self.annotations)[0]
-            self.note_bins = tf.range(0, self.note_range, 1/self.bins_per_semitone, dtype=tf.float32)
-            self.note_bins = tf.reshape(tf.tile(self.note_bins, [batch_size * self.annotations_per_window]), [batch_size, self.annotations_per_window, self.bin_count])
+                self.global_step = tf.train.create_global_step()
+
+                batch_size = tf.shape(self.annotations)[0]
+                self.note_bins = tf.range(0, self.note_range, 1/self.bins_per_semitone, dtype=tf.float32)
+                self.note_bins = tf.reshape(tf.tile(self.note_bins, [batch_size * self.annotations_per_window]), [batch_size, self.annotations_per_window, self.bin_count])
 
             # lowpriority TODO: použít booleanmask, abych pak nemusel odstraňovat ty nulové anotace
             # self.ref_notes_sparse = tf.reduce_sum(tf.one_hot(self.annotations, self.note_range), axis=2)
@@ -351,14 +356,10 @@ class NetworkMelody(Network):
             correct = tf.less(tf.abs(ref_notes-tf.abs(self.est_notes)), 0.5)
             voiced_ref = tf.greater(self.annotations[:, :, 0], 0)
             voiced_est = tf.greater(self.est_notes, 0)
-            correct_voiced_sum = tf.count_nonzero(tf.logical_and(correct, voiced_ref))
-            n_ref_sum = tf.count_nonzero(voiced_ref)
-            n_est_sum = tf.count_nonzero(voiced_est)
+            correct_voiced_sum = tf.cast(tf.count_nonzero(tf.logical_and(correct, voiced_ref)), tf.float64)
+            n_ref_sum = tf.cast(tf.count_nonzero(voiced_ref), tf.float64)
+            n_est_sum = tf.cast(tf.count_nonzero(voiced_est), tf.float64)
 
-            def safe_div(numerator, denominator):
-                return tf.cond(denominator > 0, lambda: numerator/denominator, lambda: tf.constant(0, dtype=tf.float64))
-
-            # self.precision = safe_div(correct_voiced_sum, n_est_sum)
             self.raw_pitch_accuracy = safe_div(correct_voiced_sum, n_ref_sum)
             acc_denom = n_est_sum + n_ref_sum - correct_voiced_sum
             self.accuracy = safe_div(correct_voiced_sum, acc_denom)

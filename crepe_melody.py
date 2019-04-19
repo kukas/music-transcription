@@ -19,8 +19,10 @@ def create_model(self, args):
 
         for i in range(args.multiresolution_convolution):
             width = 2**(9-i)
-            capacity = 32//args.multiresolution_convolution*args.first_layer_capacity
-            l = common.bn_conv(window_with_channel, capacity*capacity_multiplier, width, 4, "same", activation=tf.nn.relu, training=self.is_training)
+            capacity = (32*capacity_multiplier*args.first_layer_capacity)//args.multiresolution_convolution
+            # bug in capacity computation
+            # capacity = 32//args.multiresolution_convolution*args.first_layer_capacity*capacity_multiplier
+            l = common.bn_conv(window_with_channel, capacity, width, 4, "same", activation=tf.nn.relu, training=self.is_training)
             print(l.shape, width)
             first_layer.append(l)
 
@@ -76,7 +78,7 @@ def create_model(self, args):
 
     audio_net = tf.layers.flatten(audio_net)
 
-    output_layer = tf.layers.dense(audio_net, self.bin_count, activation=None, bias_regularizer=tf.nn.l2_loss, kernel_regularizer=tf.nn.l2_loss)
+    output_layer = tf.layers.dense(audio_net, self.annotations_per_window*self.bin_count, activation=None, bias_regularizer=tf.nn.l2_loss, kernel_regularizer=tf.nn.l2_loss)
     self.note_logits = tf.reshape(output_layer, [-1, self.annotations_per_window, self.bin_count])
 
     self.loss = common.loss(self, args)

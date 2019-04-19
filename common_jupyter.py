@@ -16,13 +16,13 @@ def load_data(paths, attributes=None, attr_names=None):
         data.append(results)
     return pandas.concat(data)
 
-def plot_data(data, attr_names):
-    sns.set(rc={'figure.figsize':(10,6)})
+
+def plot_data(data, attr_names, split="MedleyDB valid.", plot_metric="Raw Pitch Accuracy", drop_metrics=['Voicing Recall', 'Voicing False Alarm', "Overall Accuracy"]):
+    sns.set(rc={'figure.figsize':(14,9)})
     sns.set(style="whitegrid")
 
-    # data = data[data.Dataset=="MedleyDB"]
-    plot_metric = "Raw Pitch Accuracy"
-    drop_metrics = ['Voicing Recall', 'Voicing False Alarm', "Overall Accuracy"]
+    if split is not None:
+        data = data[data.Dataset==split]
 
     hue = None
     palette = "Blues"
