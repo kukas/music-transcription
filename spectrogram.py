@@ -10,16 +10,17 @@ import common
 import librosa
 
 def create_model(self, args):
+    spectrogram_min_note = librosa.core.hz_to_midi(self.spectrogram_fmin)
     if args.overtone_stacking > 0 or args.undertone_stacking > 0:
         spectrogram_windows = []
         print("stacking the spectrogram")
-        for i in [1/(x+2) for x in range(args.undertone_stacking)]+list(range(1,args.overtone_stacking+1)):
+        for mult in [1/(x+2) for x in range(args.undertone_stacking)]+list(range(1,args.overtone_stacking+1)):
             f_ref = 440  # arbitrary reference frequency
-            hz = f_ref*i
+            hz = f_ref*mult
             interval = librosa.core.hz_to_midi(hz) - librosa.core.hz_to_midi(f_ref)
-            int_bins = int(round(interval*self.bins_per_semitone))
+            int_bins = int(round(interval*self.bins_per_semitone) + (args.min_note - spectrogram_min_note)*self.bins_per_semitone)
             spec_layer = self.spectrogram[:, :, max(int_bins, 0):self.bin_count+int_bins, :]
-            print(i, "offset", int_bins, "end", self.bin_count+int_bins, "shape", spec_layer.shape)
+            print(mult, "offset", int_bins, "end", self.bin_count+int_bins, "shape", spec_layer.shape)
             if int_bins < 0:
                 spec_layer = tf.pad(spec_layer, ((0, 0), (0, 0), (-int_bins, 0), (0, 0)))
 
@@ -37,47 +38,30 @@ def create_model(self, args):
     context_size = int(self.context_width/self.spectrogram_hop_size)
 
     if args.activation is not None:
-            activation = getattr(tf.nn, args.activation)
+        activation = getattr(tf.nn, args.activation)
 
     with tf.name_scope('model_pitch'):
         layer = spectrogram
 
-        layer = tf.layers.conv2d(layer, 8*args.capacity_multiplier, (args.conv_ctx*2+1, 5), (1, 1), "same", activation=None, use_bias=False)
-        # layer = common.regularization(layer, args, training=self.is_training)
-        layer = tf.layers.batch_normalization(layer, training=self.is_training)
-        layer = tf.nn.relu(layer)
-        layer = tf.layers.dropout(layer, 0.25, training=self.is_training)
-
+        layer = tf.layers.conv2d(layer, 8*args.capacity_multiplier, (args.conv_ctx*2+1, 5), (1, 1), "same", activation=activation)
+        layer = common.regularization(layer, args, training=self.is_training)
         residual = layer
-        layer = tf.layers.conv2d(layer, 8*args.capacity_multiplier, (args.conv_ctx*2+1, 5), (1, 1), "same", activation=None, use_bias=False)
-        # layer = common.regularization(layer, args, training=self.is_training)
-        layer = tf.layers.batch_normalization(layer, training=self.is_training)
-        layer = tf.nn.relu(layer)
-        layer = tf.layers.dropout(layer, 0.25, training=self.is_training)
+        layer = tf.layers.conv2d(layer, 8*args.capacity_multiplier, (args.conv_ctx*2+1, 5), (1, 1), "same", activation=activation)
+        layer = common.regularization(layer, args, training=self.is_training)
         residual += layer
-        layer = tf.layers.conv2d(layer, 8*args.capacity_multiplier, (args.conv_ctx*2+1, 3), (1, 1), "same", activation=None, use_bias=False)
-        # layer = common.regularization(layer, args, training=self.is_training)
-        layer = tf.layers.batch_normalization(layer, training=self.is_training)
-        layer = tf.nn.relu(layer)
-        layer = tf.layers.dropout(layer, 0.25, training=self.is_training)
+        layer = tf.layers.conv2d(layer, 8*args.capacity_multiplier, (args.conv_ctx*2+1, 3), (1, 1), "same", activation=activation)
+        layer = common.regularization(layer, args, training=self.is_training)
         residual += layer
-        layer = tf.layers.conv2d(layer, 8*args.capacity_multiplier, (args.conv_ctx*2+1, 3), (1, 1), "same", activation=None, use_bias=False)
-        # layer = common.regularization(layer, args, training=self.is_training)
-        layer = tf.layers.batch_normalization(layer, training=self.is_training)
-        layer = tf.nn.relu(layer)
-        layer = tf.layers.dropout(layer, 0.25, training=self.is_training)
+        layer = tf.layers.conv2d(layer, 8*args.capacity_multiplier, (args.conv_ctx*2+1, 3), (1, 1), "same", activation=activation)
+        layer = common.regularization(layer, args, training=self.is_training)
         residual += layer
-        layer = tf.layers.conv2d(layer, 8*args.capacity_multiplier, (args.conv_ctx*2+1, 70), (1, 1), "same", activation=None, use_bias=False)
-        # layer = common.regularization(layer, args, training=self.is_training)
-        layer = tf.layers.batch_normalization(layer, training=self.is_training)
-        layer = tf.nn.relu(layer)
-        layer = tf.layers.dropout(layer, 0.25, training=self.is_training)
+        layer = tf.layers.conv2d(layer, 8*args.capacity_multiplier, (args.conv_ctx*2+1, 70), (1, 1), "same", activation=activation)
+        layer = common.regularization(layer, args, training=self.is_training)
         residual += layer
 
         layer = residual
-        layer = tf.layers.batch_normalization(layer, training=self.is_training)
 
-        layer = tf.layers.conv2d(layer, 1, (args.last_conv_ctx*2+1, 1), (1, 1), "same", activation=None, use_bias=False)
+        layer = tf.layers.conv2d(layer, 1, (args.last_conv_ctx*2+1, 1), (1, 1), "same", activation=None)
         layer_cut = layer[:, context_size:-context_size, :, :]
         # layer = tf.layers.conv2d(layer, 1, (10, 1), (1, 1), "same", activation=None, use_bias=True)
 
@@ -128,6 +112,7 @@ def parse_args(argv):
         "note_range": 72, "min_note": 24,
         "evaluate_every": 5000,
         "evaluate_small_every": 1000,
+        "annotation_smoothing": 0.18,
     })
     # Model specific arguments
     parser.add_argument("--spectrogram", default="cqt", type=str, help="Postprocessing layer")
@@ -159,6 +144,8 @@ def construct(args):
 
     with network.session.graph.as_default():
         spectrogram_function, spectrogram_thumb, spectrogram_info = common.spectrograms(args)
+        # save spectrogram_thumb to hyperparams
+        args.spectrogram_thumb = spectrogram_thumb
 
         def preload_fn(aa):
             aa.annotation = datasets.Annotation.from_time_series(*aa.annotation, args.frame_width*args.samplerate/44100)

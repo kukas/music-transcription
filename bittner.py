@@ -13,20 +13,8 @@ import evaluation
 
 from model import VD, VisualOutputHook, MetricsHook, SaveBestModelHook, EvaluationHook
 
-# cqt
-HOP_LENGTH = 256
-HARMONICS = [0.5, 1, 2, 3, 4, 5]
-FMIN = 32.7
-BINS_PER_OCTAVE = 60
-N_BINS = BINS_PER_OCTAVE*6
-
-
 def create_model(self, args):
-
-    self.spectrogram.set_shape([None, len(HARMONICS), N_BINS, args.annotations_per_window + 2*args.context_width/HOP_LENGTH])
-
     spectrogram = self.spectrogram
-    spectrogram = tf.transpose(spectrogram, [0, 3, 2, 1])
 
     with tf.name_scope('model'):
         layer = spectrogram
@@ -79,17 +67,19 @@ def create_model(self, args):
         self.training = tf.train.AdamOptimizer(learning_rate).minimize(self.loss, global_step=self.global_step)
 
 
+# cqt
+HOP_LENGTH = 512
 
 def parse_args(argv):
     parser = common.common_arguments({
-        "samplerate": 22050, "context_width": 0, "annotations_per_window": 50, "hop_size": 1
-        , "frame_width": HOP_LENGTH,
+        "samplerate": 44100, "context_width": 0, "annotations_per_window": 50, "hop_size": 1,
+        "frame_width": HOP_LENGTH,
         "note_range": 72, "min_note": 24,
         "evaluate_every": 5000,
         "evaluate_small_every": 1000,
     })
     # Model specific arguments
-    parser.add_argument("--spectrogram", default="cqt", type=str, help="Postprocessing layer")
+    parser.add_argument("--spectrogram", default="hcqt", type=str, help="Postprocessing layer")
 
     args = parser.parse_args(argv)
 
@@ -129,45 +119,11 @@ def construct(args):
     network = NetworkMelody(args)
 
     with network.session.graph.as_default():
-        def spec_function(audio, samplerate):
-
-            cqt_list = []
-            shapes = []
-            for h in HARMONICS:
-                cqt = librosa.cqt(
-                    audio, sr=samplerate, hop_length=HOP_LENGTH, fmin=FMIN*float(h),
-                    n_bins=N_BINS,
-                    bins_per_octave=BINS_PER_OCTAVE
-                )
-                cqt_list.append(cqt)
-                shapes.append(cqt.shape)
-
-            shapes_equal = [s == shapes[0] for s in shapes]
-            if not all(shapes_equal):
-                print("NOT ALL", shapes_equal)
-                min_time = np.min([s[1] for s in shapes])
-                new_cqt_list = []
-                for i in range(len(cqt_list)):
-                    new_cqt_list.append(cqt_list[i][:, :min_time])
-                cqt_list = new_cqt_list
-
-            log_hcqt = ((1.0/80.0) * librosa.core.amplitude_to_db(
-                np.abs(np.array(cqt_list)), ref=np.max)) + 1.0
-
-            return (log_hcqt*65535).astype(np.uint16)
-
-            # cqt = librosa.core.cqt(audio, samplerate, hop_length=HOP_LENGTH, fmin=FMIN, n_bins=N_BINS, bins_per_octave=BINS_PER_OCTAVE)
-            # # log scaling
-            # cqt = librosa.amplitude_to_db(np.abs(cqt), ref=np.max)
-            # # uint8 compression
-            # cqt = ((cqt/80+1)*255).astype(np.uint8)
-            # return cqt
-
-        spectrogram_thumb = "hcqt-fmin{}-oct{}-octbins{}-hop{}-db-uint16".format(FMIN, N_BINS/BINS_PER_OCTAVE, BINS_PER_OCTAVE, HOP_LENGTH)
+        spectrogram_function, spectrogram_thumb, spectrogram_info = common.spectrograms(args)
 
         def preload_fn(aa):
             aa.annotation = datasets.Annotation.from_time_series(*aa.annotation, 512)
-            aa.audio.load_resampled_audio(args.samplerate).load_spectrogram(spec_function, spectrogram_thumb, HOP_LENGTH)
+            aa.audio.load_resampled_audio(args.samplerate).load_spectrogram(spectrogram_function, spectrogram_thumb, HOP_LENGTH)
 
         def dataset_transform(tf_dataset, dataset):
             return tf_dataset.map(dataset.prepare_example, num_parallel_calls=args.threads).batch(args.batch_size_evaluation).prefetch(10)
@@ -178,7 +134,7 @@ def construct(args):
         valid_hooks = [MetricsHook(write_estimations=True), VisualOutputHook(False, False, True, True), SaveBestModelHook(args.logdir), AdjustVoicingHook()]
         train_dataset, test_datasets, validation_datasets = common.prepare_datasets(args.datasets, args, preload_fn, dataset_transform, dataset_transform_train, valid_hooks=valid_hooks)
 
-        network.construct(args, create_model, train_dataset.dataset.output_types, train_dataset.dataset.output_shapes)
+        network.construct(args, create_model, train_dataset.dataset.output_types, train_dataset.dataset.output_shapes, spectrogram_info=spectrogram_info)
 
     return network, train_dataset, validation_datasets, test_datasets
 

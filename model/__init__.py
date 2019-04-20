@@ -55,7 +55,7 @@ class Network:
         self.spectrogram_shape = None
         self.spectrogram_hop_size = None
         if spectrogram_info is not None:
-            channels, freq_bins, self.spectrogram_hop_size = spectrogram_info
+            channels, freq_bins, self.spectrogram_hop_size, self.spectrogram_fmin = spectrogram_info
             
             width = self.annotations_per_window + 2*self.context_width/self.spectrogram_hop_size
             self.spectrogram_shape = [channels, freq_bins, width]
