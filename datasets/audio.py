@@ -44,7 +44,9 @@ class Audio:
         audio, sr_orig = sf.read(resampled_path, dtype="int16")
 
         if len(audio.shape) >= 2:  # mono downmixing, if needed
-            audio = np.mean(audio, axis=1, dtype=np.int16)
+            audio = np.mean(audio, 1)
+            audio = audio.astype(np.int16)
+
         self.samples = audio
 
         assert sr_orig == samplerate
