@@ -3,7 +3,7 @@ import tensorflow as tf
 import numpy as np
 
 import datasets
-from model import NetworkMelody
+from model import NetworkMelody, AdjustVoicingHook
 from collections import namedtuple
 import sys
 import common
@@ -86,34 +86,6 @@ def parse_args(argv):
     common.name(args, "bittner")
 
     return args
-
-
-class AdjustVoicingHook(EvaluationHook):
-    def before_run(self, ctx, vd):
-        return [ctx.est_notes_confidence]
-
-    def after_run(self, ctx, vd, additional):
-        print("Adjusting voicing threshold")
-        # np.save(vd.name+"_est_notes.npy", np.concatenate(list(additional[ctx.est_notes].values())) )
-        # np.save(vd.name+"_est_notes_confidence.npy", np.concatenate(list(additional[ctx.est_notes_confidence].values())))
-        # all_ref = np.concatenate([aa.annotation.freqs for aa in vd.dataset._annotated_audios])
-        # np.save(vd.name+"_ref.npy", all_ref)
-
-        thresholds = np.arange(0.0, 1.0, 0.01)
-        results = []
-        for threshold in thresholds:
-            threshold_results = []
-            for uid, est_notes_confidence in additional[ctx.est_notes_confidence].items():
-                aa = vd.dataset.get_annotated_audio_by_uid(uid)
-                ref_voicing = aa.annotation.voicing
-                est_voicing = est_notes_confidence > threshold
-                voicing_accuracy = evaluation.melody.voicing_accuracy(ref_voicing, est_voicing)
-                threshold_results.append(voicing_accuracy)
-            results.append(np.mean(threshold_results))
-
-        best_threshold = thresholds[np.argmax(results)]
-        print("New voicing threshold {:.2f} {:.3f}".format(best_threshold, np.max(results)))
-        ctx.voicing_threshold.load(best_threshold, ctx.session)
 
 def construct(args):
     network = NetworkMelody(args)

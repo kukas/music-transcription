@@ -206,3 +206,27 @@ class SaveBestModelHook(EvaluationHook):
             print("Saving best model, best value = {:.2f}".format(value))
             ctx.save(self.model_name, ctx.saver_best)
             ctx.metrics.to_csv(best_metrics_csv)
+
+
+class AdjustVoicingHook(EvaluationHook):
+    def before_run(self, ctx, vd):
+        return [ctx.est_notes_confidence]
+
+    def after_run(self, ctx, vd, additional):
+        print("Adjusting voicing threshold")
+
+        thresholds = np.arange(0.0, 1.0, 0.01)
+        results = []
+        for threshold in thresholds:
+            threshold_results = []
+            for uid, est_notes_confidence in additional[ctx.est_notes_confidence].items():
+                aa = vd.dataset.get_annotated_audio_by_uid(uid)
+                ref_voicing = aa.annotation.voicing
+                est_voicing = est_notes_confidence > threshold
+                voicing_accuracy = evaluation.melody.voicing_accuracy(ref_voicing, est_voicing)
+                threshold_results.append(voicing_accuracy)
+            results.append(np.mean(threshold_results))
+
+        best_threshold = thresholds[np.argmax(results)]
+        print("New voicing threshold {:.2f} {:.3f}".format(best_threshold, np.max(results)))
+        ctx.voicing_threshold.load(best_threshold, ctx.session)

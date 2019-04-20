@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 
 import datasets
-from model import NetworkMelody
+from model import NetworkMelody, AdjustVoicingHook
 from collections import namedtuple
 import sys
 import common
@@ -20,7 +20,7 @@ def create_model(self, args):
             interval = librosa.core.hz_to_midi(hz) - librosa.core.hz_to_midi(f_ref)
             int_bins = int(round(interval*self.bins_per_semitone) + (args.min_note - spectrogram_min_note)*self.bins_per_semitone)
             spec_layer = self.spectrogram[:, :, max(int_bins, 0):self.bin_count+int_bins, :]
-            print(mult, "offset", int_bins, "end", self.bin_count+int_bins, "shape", spec_layer.shape)
+            print(mult, "offset not round", interval*self.bins_per_semitone, "offset", int_bins, "end", self.bin_count+int_bins, "shape", spec_layer.shape)
             if int_bins < 0:
                 spec_layer = tf.pad(spec_layer, ((0, 0), (0, 0), (-int_bins, 0), (0, 0)))
 
@@ -99,6 +99,9 @@ def create_model(self, args):
             print("cut context", voicing_layer.shape)
             self.voicing_logits = tf.squeeze(voicing_layer)
             print("squeeze", voicing_layer.shape)
+    else:
+        self.voicing_threshold = tf.Variable(0.15, trainable=False)
+        tf.summary.scalar("model/voicing_threshold", self.voicing_threshold)
 
     self.loss = common.loss(self, args)
     self.est_notes = common.est_notes(self, args)
@@ -158,6 +161,10 @@ def construct(args):
             return tf_dataset.shuffle(10**5).map(dataset.prepare_example, num_parallel_calls=args.threads).batch(args.batch_size).prefetch(10)
 
         train_dataset, test_datasets, validation_datasets = common.prepare_datasets(args.datasets, args, preload_fn, dataset_transform, dataset_transform_train)
+        
+        for vd in validation_datasets:
+            if not vd.name.startswith("small_"):
+                vd.hooks.append(AdjustVoicingHook())
 
         network.construct(args, create_model, train_dataset.dataset.output_types, train_dataset.dataset.output_shapes, spectrogram_info=spectrogram_info)
 
