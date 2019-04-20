@@ -141,7 +141,7 @@ def loss(self, args):
 
             loss_names.append("voicing_loss")
             losses.append(voicing_loss)
-        
+
     if len(losses) > 1:
         for name, loss in zip(loss_names, losses):
             tf.summary.scalar('metrics/train/'+name, loss)
@@ -230,23 +230,30 @@ def spectrograms(args):
             return (log_hcqt*65535).astype(np.uint16)
 
         spectrogram_thumb = "hcqt-fmin{}-oct{}-octbins{}-hop{}-db-uint16".format(FMIN, N_BINS/BINS_PER_OCTAVE, BINS_PER_OCTAVE, HOP_LENGTH)
-        spectrogram_info = (len(HARMONICS), N_BINS, HOP_LENGTH)
+        spectrogram_info = (len(HARMONICS), N_BINS, HOP_LENGTH, FMIN)
 
     elif args.spectrogram == "cqt":
+        filter_scales = [0.5, 1, 2]
         FMIN = 32.7
         BINS_PER_OCTAVE = 60
         N_BINS = BINS_PER_OCTAVE*9
 
         def spectrogram_function(audio, samplerate):
-            cqt = librosa.cqt(audio, sr=samplerate, hop_length=HOP_LENGTH, fmin=FMIN, n_bins=N_BINS, bins_per_octave=BINS_PER_OCTAVE)
+            cqts = []
+            for fscale in filter_scales:
+                cqt = librosa.cqt(audio, sr=samplerate, hop_length=HOP_LENGTH, fmin=FMIN, n_bins=N_BINS, bins_per_octave=BINS_PER_OCTAVE, filter_scale=fscale)
 
-            top_db = 120.0
-            log_cqt = (librosa.core.amplitude_to_db(np.abs(cqt), ref=np.max, top_db=top_db) / top_db) + 1.0
-            log_cqt = np.expand_dims(log_cqt, 0)
-            return (log_cqt*65535).astype(np.uint16)
+                top_db = 120.0
+                log_cqt = (librosa.core.amplitude_to_db(np.abs(cqt), ref=np.max, top_db=top_db) / top_db) + 1.0
+                #log_cqt = np.expand_dims(log_cqt, 0)
+                cqts.append(log_cqt)
+            return (np.array(cqts)*65535).astype(np.uint16)
 
         spectrogram_thumb = "cqt-fmin{}-oct{}-octbins{}-hop{}-db-uint16".format(FMIN, N_BINS/BINS_PER_OCTAVE, BINS_PER_OCTAVE, HOP_LENGTH)
-        spectrogram_info = (1, N_BINS, HOP_LENGTH)
+        if filter_scales != [1]:
+            spectrogram_thumb += "-{}".format("+".join(map(str,filter_scales)))
+
+        spectrogram_info = (len(filter_scales), N_BINS, HOP_LENGTH, FMIN)
 
     return spectrogram_function, spectrogram_thumb, spectrogram_info
 
