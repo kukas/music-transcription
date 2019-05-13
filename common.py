@@ -139,7 +139,8 @@ def loss(self, args):
                 note_ref = tf.tile(tf.reshape(annotations, [-1, self.annotations_per_window, 1]), [1, 1, self.bin_count])
                 ref_probabilities = tf.exp(-(note_ref-self.note_bins)**2/(2*args.annotation_smoothing**2))
 
-                voicing_weights = tf.tile(tf.expand_dims(voicing_ref, -1), [1, 1, self.bin_count])
+                unvoiced_weights = (1-voicing_ref)*args.unvoiced_loss_weight
+                voicing_weights = tf.tile(tf.expand_dims(voicing_ref+unvoiced_weights, -1), [1, 1, self.bin_count])
 
                 # miss weights
                 peak_ref = tf.cast(tf.abs(tf.tile(tf.reshape(annotations, [-1, self.annotations_per_window, 1]), [1, 1, self.bin_count]) - self.note_bins) < 0.5, tf.float32)
