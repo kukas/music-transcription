@@ -177,18 +177,22 @@ def loss(self, args):
 def est_notes(self, args):
     with tf.name_scope("est_notes"):
         peak_est = tf.cast(tf.argmax(self.note_probabilities, axis=2) / self.bins_per_semitone, tf.float32)
-        peak_est = tf.cast(tf.abs(tf.tile(tf.reshape(peak_est, [-1, self.annotations_per_window, 1]), [1, 1, self.bin_count]) - self.note_bins) < 0.5, tf.float32)
-        probs_around_peak = self.note_probabilities*peak_est
+        if args.peak_est_averaging > 0.0:
+            peak_est_mask = tf.cast(tf.abs(tf.tile(tf.reshape(peak_est, [-1, self.annotations_per_window, 1]), [1, 1, self.bin_count]) - self.note_bins) < args.peak_est_averaging, tf.float32)
+            probs_around_peak = self.note_probabilities*peak_est_mask
         probs_around_peak_sums = tf.reduce_sum(probs_around_peak, axis=2)
+            # self.est_notes_confidence = probs_around_peak_sums / tf.math.count_nonzero(peak_est_mask, axis=2, dtype=tf.float32)
 
-        self.est_notes_confidence = probs_around_peak_sums / tf.math.count_nonzero(peak_est, axis=2, dtype=tf.float32)
+            est_notes = safe_div(tf.reduce_sum(self.note_bins * probs_around_peak, axis=2), probs_around_peak_sums) + args.min_note
+        else:
+            est_notes = peak_est + args.min_note
 
-        est_notes = safe_div(tf.reduce_sum(self.note_bins * probs_around_peak, axis=2), probs_around_peak_sums) + args.min_note
+        self.est_notes_confidence = tf.reduce_max(self.note_probabilities, axis=2)
 
         if self.voicing_logits is not None:
             est_notes *= tf.cast(tf.greater(self.voicing_logits, 0), tf.float32)*2 - 1
         else:
-            est_notes *= tf.cast(tf.greater(probs_around_peak_sums, self.voicing_threshold), tf.float32)*2 - 1
+            est_notes *= tf.cast(tf.greater(self.est_notes_confidence, self.voicing_threshold), tf.float32)*2 - 1
 
     return est_notes
 
