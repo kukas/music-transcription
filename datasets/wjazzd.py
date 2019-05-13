@@ -7,7 +7,7 @@ modulepath = os.path.dirname(os.path.abspath(__file__))
 prefix = "wjazzd"
 
 def get_split():
-    with open(os.path.join(modulepath, "..", "data", "WJazzD", "wjazzd_split.json")) as f:
+    with open(os.path.join(modulepath, "..", "data", "wjazzd_split.json")) as f:
         split = json.load(f)
     return split
 
@@ -23,16 +23,22 @@ def dataset(dataset_root):
     return load_melody_dataset(prefix, generator(dataset_root))
 
 
-def prepare(preload_fn, threads=None):
+def prepare(preload_fn, threads=None, subsets=("train", "validation", "test")):
     wjazzd_split = get_split()
 
     def wjazzd_gen_split(name):
         gen = generator(os.path.join(modulepath, "..", "data", "WJazzD"))
         return filter(lambda x: x.track_id in wjazzd_split[name], gen)
 
-    train_data = load_melody_dataset(prefix, wjazzd_gen_split("train"))
-    test_data = load_melody_dataset(prefix, wjazzd_gen_split("test"))
-    valid_data = load_melody_dataset(prefix, wjazzd_gen_split("validation"))
+    train_data = []
+    if "train" in subsets:
+        train_data = load_melody_dataset(prefix, wjazzd_gen_split("train"))
+    test_data = []
+    if "test" in subsets:
+        test_data = load_melody_dataset(prefix, wjazzd_gen_split("test"))
+    valid_data = []
+    if "validation" in subsets:
+        valid_data = load_melody_dataset(prefix, wjazzd_gen_split("validation"))
 
     parallel_preload(preload_fn, train_data+test_data+valid_data, threads=threads)
 

@@ -19,7 +19,7 @@ def dataset(dataset_root):
 
 
 def prepare(preload_fn, threads=None):
-    test_data = dataset(os.path.join(modulepath, "..", "data", "mirex05"))
+    test_data = dataset(os.path.join(modulepath, "..", "data"))
 
     parallel_preload(preload_fn, test_data, threads=threads)
 

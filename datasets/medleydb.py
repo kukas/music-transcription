@@ -10,7 +10,7 @@ prefix = "mdb"
 
 def get_split():
     # For MDB and MDB synth we use the train/validation/test split according to deepsalience paper
-    with open(os.path.join(modulepath, "..", "data", "MedleyDB", "dataset_ismir_split.json")) as f:
+    with open(os.path.join(modulepath, "..", "data", "mdb_ismir_split.json")) as f:
         split = json.load(f)
     return split
 
@@ -30,7 +30,7 @@ def prepare(preload_fn, threads=None, annotation_type="MELODY2"):
     medleydb_split = get_split()
 
     def mdb_split(name):
-        gen = generator(os.path.join(modulepath, "..", "data", "MedleyDB", "MedleyDB"), annotation_type=annotation_type)
+        gen = generator(os.path.join(modulepath, "..", "data", "MedleyDB"), annotation_type=annotation_type)
         return filter(lambda x: x.track_id in medleydb_split[name], gen)
 
     train_data = load_melody_dataset(prefix, mdb_split("train"))

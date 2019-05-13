@@ -19,16 +19,22 @@ def dataset(dataset_root):
     return load_melody_dataset(prefix, generator(dataset_root))
 
 
-def prepare(preload_fn, threads=None):
+def prepare(preload_fn, threads=None, subsets=("train", "validation", "test")):
     medleydb_split = get_split()
 
     def mdb_split(name):
         gen = generator(os.path.join(modulepath, "..", "data", "MDB-melody-synth"))
         return filter(lambda x: x.track_id in medleydb_split[name], gen)
 
-    train_data = load_melody_dataset(prefix, mdb_split("train"))
-    test_data = load_melody_dataset(prefix, mdb_split("test"))
-    valid_data = load_melody_dataset(prefix, mdb_split("validation"))
+    train_data = []
+    if "train" in subsets:
+        train_data = load_melody_dataset(prefix, mdb_split("train"))
+    test_data = []
+    if "test" in subsets:
+        test_data = load_melody_dataset(prefix, mdb_split("test"))
+    valid_data = []
+    if "validation" in subsets:
+        valid_data = load_melody_dataset(prefix, mdb_split("validation"))
 
     parallel_preload(preload_fn, train_data+test_data+valid_data, threads=threads)
 
