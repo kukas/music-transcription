@@ -5,25 +5,26 @@ from .common import melody_dataset_generator, load_melody_dataset, parallel_prel
 from .medleydb import get_split
 
 modulepath = os.path.dirname(os.path.abspath(__file__))
+data_root = os.path.join(modulepath, "..", "data")
 
 prefix = "mdb_melody_synth"
 
-def generator(dataset_root):
-    dataset_audio_path = os.path.join(dataset_root, "audio_mix")
-    dataset_annot_path = os.path.join(dataset_root, "annotation_melody")
+def generator():
+    dataset_audio_path = os.path.join(data_root, "MDB-melody-synth", "audio_mix")
+    dataset_annot_path = os.path.join(data_root, "MDB-melody-synth", "annotation_melody")
 
     return melody_dataset_generator(dataset_audio_path, dataset_annot_path, audio_suffix="_MIX_melsynth.wav", annot_suffix="_STEM*.csv")
 
 
-def dataset(dataset_root):
-    return load_melody_dataset(prefix, generator(dataset_root))
+def dataset():
+    return load_melody_dataset(prefix, generator())
 
 
 def prepare(preload_fn, threads=None, subsets=("train", "validation", "test")):
     medleydb_split = get_split()
 
     def mdb_split(name):
-        gen = generator(os.path.join(modulepath, "..", "data", "MDB-melody-synth"))
+        gen = generator()
         return filter(lambda x: x.track_id in medleydb_split[name], gen)
 
     train_data = []

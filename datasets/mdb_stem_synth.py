@@ -3,25 +3,28 @@ import os
 from .common import melody_dataset_generator, load_melody_dataset, parallel_preload
 from .medleydb import get_split
 
+modulepath = os.path.dirname(os.path.abspath(__file__))
+data_root = os.path.join(modulepath, "..", "data")
+
 prefix = "mdb_stem_synth"
 
 
-def generator(dataset_root):
-    dataset_audio_path = os.path.join(dataset_root, "audio_stems")
-    dataset_annot_path = os.path.join(dataset_root, "annotation_stems")
+def generator():
+    dataset_audio_path = os.path.join(data_root, "MDB-stem-synth", "audio_stems")
+    dataset_annot_path = os.path.join(data_root, "MDB-stem-synth", "annotation_stems")
 
     return melody_dataset_generator(dataset_audio_path, dataset_annot_path, audio_suffix=".RESYN.wav", annot_suffix=".RESYN.csv")
 
 
-def dataset(dataset_root):
-    return load_melody_dataset(prefix, generator(dataset_root))
+def dataset():
+    return load_melody_dataset(prefix, generator())
 
 
 def prepare(preload_fn, threads=None):
     medleydb_split = get_split()
 
     def mdb_split(name):
-        gen = generator("data/MDB-stem-synth/")
+        gen = generator()
         return filter(lambda x: x.track_id[:-len("_STEM_xx")] in medleydb_split[name], gen)
 
     train_data = load_melody_dataset(prefix, mdb_split("train"))

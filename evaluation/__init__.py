@@ -19,72 +19,74 @@ def get_dataset_list():
     mdb_split = datasets.medleydb.get_split()
     wjazzd_split = datasets.wjazzd.get_split()
 
+    datasets_root = join(modulepath, "../data/")
+
     return [
         (
             datasets.orchset.prefix,
             "test",
             "ORCHSET",
-            list(datasets.orchset.generator(join(modulepath, "../data/Orchset")))
+            list(datasets.orchset.generator())
         ),
         (
             datasets.adc2004.prefix,
             "test",
             "ADC04",
-            list(datasets.adc2004.generator(join(modulepath, "../data/adc2004")))
+            list(datasets.adc2004.generator())
         ),
         (
             datasets.mirex05.prefix,
             "test",
             "MIREX05 train.",
-            list(datasets.mirex05.generator(join(modulepath, "../data/mirex05")))
+            list(datasets.mirex05.generator())
         ),
         (
             datasets.mdb_melody_synth.prefix,
             "test",
             "MDB-mel-s.",
-            list(filter(lambda x: x.track_id in mdb_split["test"], datasets.mdb_melody_synth.generator(join(modulepath, "../data/MDB-melody-synth"))))
+            list(filter(lambda x: x.track_id in mdb_split["test"], datasets.mdb_melody_synth.generator()))
         ),
         (
             datasets.mdb_stem_synth.prefix,
             "test",
             "MDB-stem-s",
-            list(filter(lambda x: x.track_id[:-len("_STEM_xx")] in mdb_split["test"], datasets.mdb_stem_synth.generator(join(modulepath, "../data/MDB-stem-synth"))))
+            list(filter(lambda x: x.track_id[:-len("_STEM_xx")] in mdb_split["test"], datasets.mdb_stem_synth.generator()))
         ),
         (
             datasets.medleydb.prefix,
             "test",
             "MedleyDB",
-            list(filter(lambda x: x.track_id in mdb_split["test"], datasets.medleydb.generator(join(modulepath, "../data/MedleyDB/MedleyDB"))))
+            list(filter(lambda x: x.track_id in mdb_split["test"], datasets.medleydb.generator()))
         ),
         (
             datasets.wjazzd.prefix,
             "test",
             "WJazzD",
-            list(filter(lambda x: x.track_id in wjazzd_split["test"], datasets.wjazzd.generator(join(modulepath, "../data/WJazzD"))))
+            list(filter(lambda x: x.track_id in wjazzd_split["test"], datasets.wjazzd.generator()))
         ),
         (
             datasets.mdb_melody_synth.prefix,
             "valid",
             "MDB-mel-s. valid.",
-            list(filter(lambda x: x.track_id in mdb_split["validation"], datasets.mdb_melody_synth.generator(join(modulepath, "../data/MDB-melody-synth"))))
+            list(filter(lambda x: x.track_id in mdb_split["validation"], datasets.mdb_melody_synth.generator()))
         ),
         (
             datasets.mdb_stem_synth.prefix,
             "valid",
             "MDB-stem-s. valid.",
-            list(filter(lambda x: x.track_id[:-len("_STEM_xx")] in mdb_split["validation"], datasets.mdb_stem_synth.generator(join(modulepath, "../data/MDB-stem-synth"))))
+            list(filter(lambda x: x.track_id[:-len("_STEM_xx")] in mdb_split["validation"], datasets.mdb_stem_synth.generator()))
         ),
         (
             datasets.medleydb.prefix,
             "valid",
             "MedleyDB valid.",
-            list(filter(lambda x: x.track_id in mdb_split["validation"], datasets.medleydb.generator(join(modulepath, "../data/MedleyDB/MedleyDB"))))
+            list(filter(lambda x: x.track_id in mdb_split["validation"], datasets.medleydb.generator()))
         ),
         (
             datasets.wjazzd.prefix,
             "valid",
             "WJazzD valid.",
-            list(filter(lambda x: x.track_id in wjazzd_split["validation"], datasets.wjazzd.generator(join(modulepath, "../data/WJazzD"))))
+            list(filter(lambda x: x.track_id in wjazzd_split["validation"], datasets.wjazzd.generator()))
         ),
     ]
 
