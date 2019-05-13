@@ -2,19 +2,20 @@ import argparse
 import tensorflow as tf
 import json
 import datasets
+import evaluation
 import datetime
 import time
 import sys
 from model import VD, VisualOutputHook, MetricsHook, MetricsHook_mf0, VisualOutputHook_mf0, SaveBestModelHook, safe_div, SaveSaliencesHook
-
 import librosa
 import numpy as np
+import os
 # Console argument functions
 
 def name(args, specified_args=[], prefix=""):
     if args.logdir is None:
         filtered = ["logdir", "checkpoint", "saver_max_to_keep", "threads", "full_trace", "debug_memory_leaks", "cpu",
-                    "rewind", "save_salience", "evaluate", "evaluate_every", "evaluate_small_every", "epochs", "iterations", "batch_size_evaluation", "stop_if_too_slow"]
+                    "rewind", "save_salience", "predict", "evaluate", "evaluate_every", "evaluate_small_every", "epochs", "iterations", "batch_size_evaluation", "stop_if_too_slow"]
         name = "{}-{}".format(datetime.datetime.now().strftime("%m%d_%H%M%S"), prefix)
         for k, v in vars(args).items():
             if k not in filtered and (specified_args != [] and k in specified_args) or specified_args == []:
@@ -45,6 +46,7 @@ def common_arguments_parser():
     # training settings
     parser.add_argument("--rewind", action='store_true', help="Rewind back to the same point in training.")
     parser.add_argument("--save_salience", action='store_true', help="Save salience output when evaluating.")
+    parser.add_argument("--predict", default=None, type=str, help="Extract the melody from the input file.")
     parser.add_argument("--evaluate", action='store_true', help="Evaluate after training. If an existing checkpoint is specified, it will be evaluated only.")
     parser.add_argument("--evaluate_every", type=int, help="Evaluate validation set every N steps.")
     parser.add_argument("--evaluate_small_every", type=int, help="Evaluate small validation set every N steps.")
@@ -396,13 +398,27 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
     if valid_hooks is None:
         valid_hooks = [MetricsHook(write_estimations=True), VisualOutputHook(False, False, True, True), SaveBestModelHook(args.logdir)]
     if test_hooks is None:
-        test_hooks = [MetricsHook(write_summaries=False, print_detailed=True, write_estimations=True)]
+        test_hooks = [MetricsHook(write_summaries=False, print_detailed=False, write_estimations=True)]
         if args.save_salience:
             test_hooks.append(SaveSaliencesHook())
+    
 
     validation_datasets = []
     test_datasets = []
     train_data = []
+
+    if args.predict:
+        uid = "predict_"+os.path.splitext(os.path.basename(args.predict))[0]
+        # prepare audio
+        audio = Audio(audio_path, uid)
+        aa = AnnotatedAudio(None, audio)
+        track = preload_fn([aa])
+        predict_dataset = datasets.AADataset(track, args, dataset_transform)
+        test_datasets += [
+            VD("predict", predict_dataset, 0, test_hooks),
+        ]
+        return test_datasets, test_datasets, test_datasets
+
     if datasets.medleydb.prefix in which or datasets.medleydb.prefix+"_mel4" in which:
         if datasets.medleydb.prefix+"_mel4" in which:
             annotation_type = "MELODY4"
@@ -519,7 +535,7 @@ def main(argv, construct, parse_args):
     # Construct the network
     network, train_dataset, validation_datasets, test_datasets = construct(args)
 
-    if not (args.evaluate and network.restored and not args.rewind):
+    if not (args.evaluate and network.restored and not args.rewind) and not args.predict:
         try:
             network.train(train_dataset, validation_datasets, save_every_n_batches=10000)
             network.save(args.checkpoint)
@@ -530,4 +546,11 @@ def main(argv, construct, parse_args):
     if args.evaluate:
         for vd in test_datasets:
             print("{} evaluation".format(vd.name))
+            network.evaluate(vd)
+
+        print(evaluation.summary("test", os.path.join(args.logdir, args.checkpoint+"-f0-outputs")))
+
+    if args.predict:
+        for vd in test_datasets:
+            print("{}".format(vd.name))
             network.evaluate(vd)
