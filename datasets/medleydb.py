@@ -15,21 +15,22 @@ def get_split():
     return split
 
 
-def generator(dataset_root):
+def generator(dataset_root, annotation_type="MELODY2"):
     dataset_audio_path = os.path.join(dataset_root, "Audio", "*")
-    dataset_annot_path = os.path.join(dataset_root, "Annotations", "Melody_Annotations", "MELODY2")
+    dataset_annot_path = os.path.join(dataset_root, "Annotations", "Melody_Annotations", annotation_type)
 
-    return melody_dataset_generator(dataset_audio_path, dataset_annot_path, audio_suffix="_MIX.wav", annot_suffix="_MELODY2.csv")
+    return melody_dataset_generator(dataset_audio_path, dataset_annot_path, audio_suffix="_MIX.wav", annot_suffix="_"+annotation_type+".csv")
 
 
 def dataset(dataset_root):
     return load_melody_dataset(prefix, generator(dataset_root))
 
-def prepare(preload_fn, threads=None):
+
+def prepare(preload_fn, threads=None, annotation_type="MELODY2"):
     medleydb_split = get_split()
 
     def mdb_split(name):
-        gen = generator(os.path.join(modulepath, "..", "data", "MedleyDB", "MedleyDB"))
+        gen = generator(os.path.join(modulepath, "..", "data", "MedleyDB", "MedleyDB"), annotation_type=annotation_type)
         return filter(lambda x: x.track_id in medleydb_split[name], gen)
 
     train_data = load_melody_dataset(prefix, mdb_split("train"))

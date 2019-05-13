@@ -364,8 +364,12 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
     validation_datasets = []
     test_datasets = []
     train_data = []
-    if datasets.medleydb.prefix in which:
-        medleydb_train, medleydb_test, medleydb_validation, medleydb_small_validation = datasets.medleydb.prepare(preload_fn, threads=args.threads)
+    if datasets.medleydb.prefix in which or datasets.medleydb.prefix+"_mel4" in which:
+        if datasets.medleydb.prefix+"_mel4" in which:
+            annotation_type = "MELODY4"
+        else:
+            annotation_type = "MELODY2"
+        medleydb_train, medleydb_test, medleydb_validation, medleydb_small_validation = datasets.medleydb.prepare(preload_fn, threads=args.threads, annotation_type=annotation_type)
         medleydb_test_dataset = datasets.AADataset(medleydb_test, args, dataset_transform)
         medleydb_validation_dataset = datasets.AADataset(medleydb_validation, args, dataset_transform)
         medleydb_small_validation_dataset = datasets.AADataset(medleydb_small_validation, args, dataset_transform)

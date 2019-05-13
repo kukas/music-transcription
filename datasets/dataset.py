@@ -112,12 +112,15 @@ class AADataset:
         annotation_end = min(len(aa.annotation.times), annotation_start + self.annotations_per_window)
         
         annotations = aa.annotation.notes[annotation_start:annotation_end]
+        if annotations.shape[1] < self.max_polyphony:
+            annotations = np.pad(annotations, ((0, 0), (0, self.max_polyphony - annotations.shape[1])), "constant")
+
         times = aa.annotation.times[annotation_start:annotation_end]
 
         len_diff = self.annotations_per_window - (annotation_end - annotation_start)
         if len_diff > 0:
             times = np.pad(times, (0, len_diff), "constant", constant_values=(-1, -1))
-            annotations = np.pad(annotations, ((0, len_diff),(0,0)), "constant")
+            annotations = np.pad(annotations, ((0, len_diff),(0, 0)), "constant")
 
         window_start_sample = int(np.round(times[0]*self.samplerate))
         audio, spectrogram = aa.audio.get_window_at_sample(window_start_sample, self.inner_window_size, self.context_width)

@@ -119,7 +119,7 @@ class MetricsHook(EvaluationHook):
             self.write_estimations_timer += time.time()-timer
 
         ref_time = aa.annotation.times
-        ref_freq = np.squeeze(aa.annotation.freqs, 1)
+        ref_freq = aa.annotation.freqs[:, 0]
 
         assert len(ref_time) == len(est_time)
         assert len(ref_freq) == len(est_freq)
@@ -221,7 +221,7 @@ class AdjustVoicingHook(EvaluationHook):
             threshold_results = []
             for uid, est_notes_confidence in additional[ctx.est_notes_confidence].items():
                 aa = vd.dataset.get_annotated_audio_by_uid(uid)
-                ref_voicing = aa.annotation.voicing
+                ref_voicing = aa.annotation.freqs[:,0] > 0
                 est_voicing = est_notes_confidence > threshold
                 voicing_accuracy = evaluation.melody.voicing_accuracy(ref_voicing, est_voicing)
                 threshold_results.append(voicing_accuracy)

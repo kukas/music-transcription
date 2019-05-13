@@ -89,21 +89,6 @@ class Annotation:
             raise RuntimeError("The annotation is empty.")
         return self.times[1]-self.times[0]
     
-    def resample(self, hop_size):
-        # TODO: not implemented for multif0
-        assert self.notes.shape[1] == 1
-
-        times_new = np.arange(self.times[0], self.times[-1], hop_size)
-        notes_new, voicing_new = mir_eval.melody.resample_melody_series(self.times, self.notes[:,0], self.voicing, times_new)
-
-        resampled = Annotation(times_new, notes=np.expand_dims(notes_new, axis=-1), voicing=voicing_new)
-        self.times = resampled.times
-        self.freqs = resampled.freqs
-        self.notes = resampled.notes
-        self.voicing = resampled.voicing
-        self._freqs_mf0 = None
-        self._notes_mf0 = None
-
     def slice(self, start, end):
         framerate = 1/self.get_frame_width()
         b0, b1 = int(start*framerate), int(end*framerate)
@@ -114,3 +99,17 @@ class Annotation:
         sliced_notes = self.notes[b0:b1]
         sliced_voicing = self.voicing[b0:b1]
         return Annotation(sliced_times, sliced_freqs, sliced_notes, sliced_voicing)
+
+    def unique_mf0(self):
+        self._freqs_mf0 = None
+        self._notes_mf0 = None
+
+        for i in range(len(self.freqs)):
+            for j in range(len(self.freqs[i])):
+                if self.freqs[i, j] == 0.0:
+                    continue
+                for k in range(j+1, len(self.freqs[i])):
+                    if np.isclose(self.freqs[i, j], self.freqs[i, k]):
+                        self.freqs[i, k] = 0.0
+                        self.notes[i, k] = 0.0
+        return self
