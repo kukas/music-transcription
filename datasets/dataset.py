@@ -134,3 +134,41 @@ class AADataset:
         for aa in self._annotated_audios:
             if aa.audio.uid == uid:
                 return aa
+
+    # # Step 2 : Frequency masking
+    # for i in range(frequency_mask_num):
+    #     f = np.random.uniform(low=0.0, high=frequency_masking_para)
+    #     f = int(f)
+    #     f0 = random.randint(0, v - f)
+    #     warped_mel_spectrogram[f0:f0 + f, :] = 0
+
+    # # Step 3 : Time masking
+    # for i in range(time_mask_num):
+    #     t = np.random.uniform(low=0.0, high=time_masking_para)
+    #     t = int(t)
+    #     t0 = random.randint(0, tau - t)
+    #     warped_mel_spectrogram[:, t0:t0 + t] = 0
+    # https://github.com/shelling203/SpecAugment/blob/master/SpecAugment/spec_augment_tensorflow.py
+    def specaugment(self, args):
+        def _mix_example(window_op, spectrogram_op, annotations_op, times_op, audio_uid_op):
+            def _specaugment(window, spectrogram, annotations, times, audio_uid):
+                if np.random.uniform() < args.specaugment_prob:
+                    _, v, tau = spectrogram.shape
+                    # Frequency masking
+                    for _ in range(args.specaugment_freq_mask_num):
+                        f = np.random.randint(1, args.specaugment_freq_mask_max)
+                        f0 = np.random.randint(0, v - f)
+                        spectrogram[:, f0:f0+f, :] = 0
+                    # Time masking
+                    for _ in range(args.specaugment_time_mask_num):
+                        t = np.random.randint(1, args.specaugment_time_mask_max)
+                        t0 = np.random.randint(0, tau - t)
+                        spectrogram[:, :, t0:t0+t] = 0
+
+                return (window, spectrogram, annotations, times, audio_uid)
+
+            outputs = tf.py_func(_specaugment, [window_op, spectrogram_op, annotations_op, times_op, audio_uid_op], self.output_types)
+            for output, shape in zip(outputs, self.output_shapes):
+                output.set_shape(shape)
+            return outputs
+        return _mix_example

@@ -233,30 +233,66 @@ def spectrograms(args):
         spectrogram_info = (len(HARMONICS), N_BINS, HOP_LENGTH, FMIN)
 
     elif args.spectrogram == "cqt":
+        FMIN = 32.7
+        BINS_PER_OCTAVE = 60
+        N_BINS = BINS_PER_OCTAVE*9
+        top_db = 80.0
+
+        def spectrogram_function(audio, samplerate):
+            cqt = librosa.cqt(audio, sr=samplerate, hop_length=HOP_LENGTH, fmin=FMIN, n_bins=N_BINS, bins_per_octave=BINS_PER_OCTAVE, filter_scale=1)
+
+            log_cqt = (librosa.core.amplitude_to_db(np.abs(cqt), ref=np.max, top_db=top_db) / top_db) + 1.0
+            log_cqt = np.expand_dims(log_cqt, 0)
+            return (log_cqt*65535).astype(np.uint16)
+
+        spectrogram_thumb = "cqt-fmin{}-oct{}-octbins{}-hop{}-db{}-uint16".format(FMIN, N_BINS/BINS_PER_OCTAVE, BINS_PER_OCTAVE, HOP_LENGTH, top_db)
+        spectrogram_info = (1, N_BINS, HOP_LENGTH, FMIN)
+
+    elif args.spectrogram == "cqt_fs":
         filter_scales = [0.5, 1, 2]
+        top_db = [60, 80, 100]
         FMIN = 32.7
         BINS_PER_OCTAVE = 60
         N_BINS = BINS_PER_OCTAVE*9
 
         def spectrogram_function(audio, samplerate):
             cqts = []
-            for fscale in filter_scales:
+            for fscale, db in zip(filter_scales, top_db):
                 cqt = librosa.cqt(audio, sr=samplerate, hop_length=HOP_LENGTH, fmin=FMIN, n_bins=N_BINS, bins_per_octave=BINS_PER_OCTAVE, filter_scale=fscale)
-
-                top_db = 120.0
-                log_cqt = (librosa.core.amplitude_to_db(np.abs(cqt), ref=np.max, top_db=top_db) / top_db) + 1.0
-                #log_cqt = np.expand_dims(log_cqt, 0)
+                log_cqt = (librosa.core.amplitude_to_db(np.abs(cqt), ref=np.max, top_db=db) / db) + 1.0
                 cqts.append(log_cqt)
             return (np.array(cqts)*65535).astype(np.uint16)
 
-        spectrogram_thumb = "cqt-fmin{}-oct{}-octbins{}-hop{}-db-uint16".format(FMIN, N_BINS/BINS_PER_OCTAVE, BINS_PER_OCTAVE, HOP_LENGTH)
-        if filter_scales != [1]:
-            spectrogram_thumb += "-{}".format("+".join(map(str,filter_scales)))
-
+        spectrogram_thumb = "cqt-fmin{}-oct{}-octbins{}-hop{}-db-fs{}-uint16".format(FMIN, N_BINS/BINS_PER_OCTAVE, BINS_PER_OCTAVE, HOP_LENGTH, "+".join(map(str, filter_scales)))
         spectrogram_info = (len(filter_scales), N_BINS, HOP_LENGTH, FMIN)
 
     return spectrogram_function, spectrogram_thumb, spectrogram_info
 
+def harmonic_stacking(self, input, undertones, overtones, offset=0):
+    spectrogram_windows = []
+    print("stacking the spectrogram")
+    for mult in [1/(x+2) for x in range(undertones)]+list(range(1, overtones+1)):
+        f_ref = 440  # arbitrary reference frequency
+        hz = f_ref*mult
+        interval = librosa.core.hz_to_midi(hz) - librosa.core.hz_to_midi(f_ref)
+
+        int_bins = int(round((interval + offset)*self.bins_per_semitone))
+
+        start = max(int_bins, 0)
+        end = self.bin_count+int_bins
+        spec_layer = input[:, :, start:end, :]
+
+        print(mult, "start", start, "end", end, "shape", spec_layer.shape, end=" ")
+
+        if int_bins < 0:
+            spec_layer = tf.pad(spec_layer, ((0, 0), (0, 0), (-int_bins, 0), (0, 0)))
+
+        spec_layer = tf.pad(spec_layer, ((0, 0), (0, 0), (0, self.bin_count-spec_layer.shape[2]), (0, 0)))
+
+        print("padded shape", spec_layer.shape)
+
+        spectrogram_windows.append(spec_layer)
+    return tf.concat(spectrogram_windows, axis=-1)
 
 def regularization(voicing_layer, args, training=None):
     if args.batchnorm:
