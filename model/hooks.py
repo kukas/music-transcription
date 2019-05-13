@@ -171,6 +171,20 @@ class MetricsHook(EvaluationHook):
             print("csv outputs written in {:.2f}s".format(self.write_estimations_timer))
         print("{}: {}".format(vd.name, self._title(ctx)))
 
+class SaveSaliencesHook(EvaluationHook):
+    def before_run(self, ctx, vd):
+        return [ctx.note_probabilities]
+
+    def after_run(self, ctx, vd, additional):
+        timer = time.time()
+        est_dir = os.path.join(ctx.logdir, ctx.args.checkpoint+"-f0-saliences", vd.name+"-test-melody-outputs")
+        os.makedirs(est_dir, exist_ok=True)
+
+        for uid, salience in additional[ctx.note_probabilities].items():
+            aa = vd.dataset.get_annotated_audio_by_uid(uid)
+            np.save(os.path.join(est_dir, aa.audio.filename+".npy"), salience)
+
+        print("saliences written in {:.2f}s".format(time.time()-timer))
 
 class MetricsHook_mf0(EvaluationHook_mf0, MetricsHook):
     def every_aa(self, ctx, vd, aa, est_time, est_freq):

@@ -360,6 +360,8 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
         valid_hooks = [MetricsHook(write_estimations=True), VisualOutputHook(False, False, True, True), SaveBestModelHook(args.logdir)]
     if test_hooks is None:
         test_hooks = [MetricsHook(write_summaries=False, print_detailed=True, write_estimations=True)]
+        if args.save_salience:
+            test_hooks.append(SaveSaliencesHook())
 
     validation_datasets = []
     test_datasets = []
