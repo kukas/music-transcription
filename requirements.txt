@@ -1,0 +1,7 @@
+tensorflow==1.13.1
+mir-eval==0.5
+resampy==0.2.1
+SoundFile==0.10.2
+librosa==0.6.3
+pandas==0.24.2
+matplotlib==3.0.3
