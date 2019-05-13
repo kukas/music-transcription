@@ -11,12 +11,13 @@ import librosa
 import numpy as np
 # Console argument functions
 
-def name(args, prefix=""):
+def name(args, specified_args=[], prefix=""):
     if args.logdir is None:
-        filtered = ["logdir", "checkpoint", "saver_max_to_keep", "threads", "full_trace", "debug_memory_leaks", "cpu" ,"rewind", "evaluate", "evaluate_every", "evaluate_small_every", "epochs", "batch_size_evaluation"]
+        filtered = ["logdir", "checkpoint", "saver_max_to_keep", "threads", "full_trace", "debug_memory_leaks", "cpu",
+                    "rewind", "save_salience", "evaluate", "evaluate_every", "evaluate_small_every", "epochs", "iterations", "batch_size_evaluation", "stop_if_too_slow"]
         name = "{}-{}".format(datetime.datetime.now().strftime("%m%d_%H%M%S"), prefix)
         for k, v in vars(args).items():
-            if k not in filtered:
+            if k not in filtered and (specified_args != [] and k in specified_args) or specified_args == []:
                 short_k = "".join([w[0] for w in k.split("_")])
                 if type(v) is list or type(v) is tuple:
                     v = map(str, v)
@@ -29,21 +30,7 @@ def name(args, prefix=""):
         print(name)
         print()
 
-def common_arguments(defaults={}):
-    _defaults = {
-        "batch_size": 32,
-        "annotations_per_window": 1,
-        "hop_size": None,
-        "frame_width": round(256/(44100/16000)),
-        "context_width": 0,
-        "samplerate": 16000,
-        "min_note": 0,
-        "note_range": 128,
-        "evaluate_every": 20000,
-        "evaluate_small_every": 5000,
-        "annotation_smoothing": 0.25,
-    }
-    defaults = {**_defaults, **defaults}
+def common_arguments_parser():
     parser = argparse.ArgumentParser()
     # loading models
     parser.add_argument("--logdir", default=None, type=str, help="Path to model directory.")
@@ -54,39 +41,77 @@ def common_arguments(defaults={}):
     parser.add_argument("--full_trace", action='store_true', help="Profile Tensorflow session.")
     parser.add_argument("--debug_memory_leaks", action='store_true', help="Debug memory leaks.")
     parser.add_argument("--cpu", action='store_true', help="Disable GPU.")
+    parser.add_argument("--stop_if_too_slow", default=None, type=float, help="Exit training if training one batch takes longer than N seconds.")
     # training settings
     parser.add_argument("--rewind", action='store_true', help="Rewind back to the same point in training.")
+    parser.add_argument("--save_salience", action='store_true', help="Save salience output when evaluating.")
     parser.add_argument("--evaluate", action='store_true', help="Evaluate after training. If an existing checkpoint is specified, it will be evaluated only.")
-    parser.add_argument("--evaluate_every", default=defaults["evaluate_every"], type=int, help="Evaluate validation set every N steps.")
-    parser.add_argument("--evaluate_small_every", default=defaults["evaluate_small_every"], type=int, help="Evaluate small validation set every N steps.")
+    parser.add_argument("--evaluate_every", type=int, help="Evaluate validation set every N steps.")
+    parser.add_argument("--evaluate_small_every", type=int, help="Evaluate small validation set every N steps.")
     parser.add_argument("--epochs", default=None, type=int, help="Number of epochs to train for.")
+    parser.add_argument("--iterations", default=None, type=int, help="Number of iterations to train for.")
     # input
-    parser.add_argument("--datasets", default=["mdb"], nargs="+", type=str, help="Datasets to use for this experiment")
-    parser.add_argument("--batch_size", default=defaults["batch_size"], type=int, help="Number of examples in one batch")
+    parser.add_argument("--datasets", nargs="+", type=str, help="Datasets to use for this experiment")
+    parser.add_argument("--batch_size", type=int, help="Number of examples in one batch")
     parser.add_argument("--batch_size_evaluation", default=64, type=int, help="Number of examples in one batch for evaluation")
     # input window shape
-    parser.add_argument("--samplerate", default=defaults["samplerate"], type=int, help="Audio samplerate used in the model, resampling is done automatically.")
-    parser.add_argument("--hop_size", default=defaults["hop_size"], type=int, help="Hop of the input window specified in number of annotations. Defaults to annotations_per_window")
-    parser.add_argument("--frame_width", default=defaults["frame_width"], type=int, help="Number of samples per annotation = hop size.")
-    parser.add_argument("--context_width", default=defaults["context_width"], type=int, help="Number of context samples on both sides of the example window.")
-    parser.add_argument("--input_normalization", action='store_true', default=True, help="Enable normalizing each input example")
-    parser.add_argument("--no_input_normalization", action='store_true', dest='input_normalization', help="Disable normalizing each input example")
+    parser.add_argument("--samplerate", type=int, help="Audio samplerate used in the model, resampling is done automatically.")
+    parser.add_argument("--hop_size", type=int, help="Hop of the input window specified in number of annotations. Defaults to annotations_per_window")
+    parser.add_argument("--frame_width", type=int, help="Number of samples per annotation = hop size. !!!!!!! POZOR, PŘI RESAMPLINGU VALIDAČNÍCH DAT PAK NESEDÍ FINÁLNÍ VÝSLEDKY S TĚMI Z TENSORBOARDU !!!!!!!!")
+    parser.add_argument("--context_width", type=int, help="Number of context samples on both sides of the example window.")
     # output notes shape
-    parser.add_argument("--annotations_per_window", default=defaults["annotations_per_window"], type=int, help="Number of annotations in one example.")
-    parser.add_argument("--min_note", default=defaults["min_note"], type=int, help="First MIDI note number.")
-    parser.add_argument("--note_range", default=defaults["note_range"], type=int, help="Note range.")
-    parser.add_argument("--bins_per_semitone", default=5, type=int, help="Bins per semitone")
-    parser.add_argument("--annotation_smoothing", default=defaults["annotation_smoothing"], type=float, help="Set standard deviation of the gaussian blur for the frame annotations")
-
+    parser.add_argument("--annotations_per_window", type=int, help="Number of annotations in one example.")
+    parser.add_argument("--min_note", type=int, help="First MIDI note number.")
+    parser.add_argument("--note_range", type=int, help="Note range.")
+    parser.add_argument("--bins_per_semitone", type=int, help="Bins per semitone")
+    parser.add_argument("--annotation_smoothing", type=float, help="Set standard deviation of the gaussian blur for the frame annotations")
+    parser.add_argument("--peak_est_averaging", type=float, help="Width of the window for local note peak averaging")
     # learning parameters
-    parser.add_argument("--learning_rate", default=0.001, type=float, help="Learning rate")
-    parser.add_argument("--learning_rate_decay", default=1.0, type=float, help="Learning rate decay")
-    parser.add_argument("--learning_rate_decay_steps", default=100000, type=int, help="Learning rate decay steps")
-    parser.add_argument("--clip_gradients", default=0.0, type=float, help="Clip gradients by global norm")
-    parser.add_argument("--l2_loss_weight", default=0.0, type=float, help="L2 loss weight")
-    parser.add_argument("--miss_weight", default=1.0, type=float, help="Weight for missed frames in the loss function")
+    parser.add_argument("--learning_rate", type=float, help="Learning rate")
+    parser.add_argument("--learning_rate_decay", type=float, help="Learning rate decay")
+    parser.add_argument("--learning_rate_decay_steps", type=int, help="Learning rate decay steps")
+    parser.add_argument("--clip_gradients", type=float, help="Clip gradients by global norm")
+    parser.add_argument("--unvoiced_loss_weight", type=float, help="Unvoiced frames loss weight for the melody model")
+    parser.add_argument("--l2_loss_weight", type=float, help="L2 loss weight")
+    parser.add_argument("--miss_weight", type=float, help="Weight for missed frames in the loss function")
 
     return parser
+
+def argument_defaults(args, defaults):
+    arg_defaults = {
+        "batch_size": 32,
+        "annotations_per_window": 1,
+        "hop_size": None,
+        "frame_width": round(256/(44100/16000)),
+        "context_width": 0,
+        "samplerate": 16000,
+        "min_note": 0,
+        "note_range": 128,
+        "evaluate_every": 20000,
+        "evaluate_small_every": 5000,
+        "bins_per_semitone": 5,
+        "annotation_smoothing": 0.25,
+        "peak_est_averaging": 0.25,
+        "datasets": ["mdb"],
+        "learning_rate": 0.001,
+        "learning_rate_decay": 1.0,
+        "learning_rate_decay_steps": 100000,
+        "clip_gradients": 0.0,
+        "unvoiced_loss_weight": 0.0,
+        "l2_loss_weight": 0.0,
+        "miss_weight": 1.0,
+    }
+
+    defaults = {**arg_defaults, **defaults}
+
+    specified_args = []
+    for key, value in defaults.items():
+        if getattr(args, key) is None:
+            setattr(args, key, value)
+        else:
+            specified_args.append(key)
+
+    return specified_args
 
 # Model functions
 

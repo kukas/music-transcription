@@ -71,23 +71,47 @@ def create_model(self, args):
 
 
 def parse_args(argv):
-    parser = common.common_arguments({"context_width": 0})
+    parser = common.common_arguments_parser()
     # Model specific arguments
-    parser.add_argument("--initial_filter_width", default=32, type=int, help="First conv layer filter width")
-    parser.add_argument("--initial_filter_padding", default="same", type=str, help="First conv layer padding")
-    parser.add_argument("--filter_width", default=3, type=int, help="Dilation stack filter width (2 or 3)")
     parser.add_argument("--use_biases", action='store_true', default=False, help="Use biases in the convolutions")
-    parser.add_argument("--skip_channels", default=64, type=int, help="Skip channels")
-    parser.add_argument("--residual_channels", default=32, type=int, help="Residual channels")
-    parser.add_argument("--stack_number", default=1, type=int, help="Number of dilated stacks")
-    parser.add_argument("--max_dilation", default=512, type=int, help="Maximum dilation rate")
-    parser.add_argument("--dilation_layer_dropout", default=0.0, type=float, help="Dropout in dilation layer")
-    parser.add_argument("--skip_layer_dropout", default=0.0, type=float, help="Dropout in skip connections")
-    parser.add_argument("--postprocessing", default="avgpool_p93_s93_Psame->conv_f256_k16_s8_Psame_arelu->conv_f256_k16_s8_Psame_arelu", type=str, help="Postprocessing layer")
+
+    parser.add_argument("--input_normalization", type=int, help="Enable normalizing each input example")
+    parser.add_argument("--initial_filter_width", type=int, help="First conv layer filter width")
+    parser.add_argument("--initial_filter_padding", type=str, help="First conv layer padding")
+    parser.add_argument("--filter_width", type=int, help="Dilation stack filter width (2 or 3)")
+    parser.add_argument("--skip_channels", type=int, help="Skip channels")
+    parser.add_argument("--residual_channels", type=int, help="Residual channels")
+    parser.add_argument("--stack_number", type=int, help="Number of dilated stacks")
+    parser.add_argument("--max_dilation", type=int, help="Maximum dilation rate")
+    parser.add_argument("--dilation_layer_dropout", type=float, help="Dropout in dilation layer")
+    parser.add_argument("--skip_layer_dropout", type=float, help="Dropout in skip connections")
+    parser.add_argument("--skip", type=str, help="Skip add or concat")
+    parser.add_argument("--postprocessing", type=str, help="Postprocessing layer")
 
     args = parser.parse_args(argv)
-
-    common.name(args, "wavenet")
+    defaults = {
+        "note_range": 72, "min_note": 24,
+        "evaluate_every": 5000,
+        "evaluate_small_every": 5000,
+        "batch_size": 8,
+        "annotations_per_window": 10,
+        "context_width": 94,
+        "annotation_smoothing": 0.18,
+        "input_normalization": 1,
+        "initial_filter_width": 32,
+        "initial_filter_padding": "same",
+        "filter_width": 3,
+        "skip_channels": 64,
+        "residual_channels": 32,
+        "stack_number": 1,
+        "max_dilation": 512,
+        "dilation_layer_dropout": 0.0,
+        "skip_layer_dropout": 0.0,
+        "skip": "add",
+        "postprocessing": "avgpool_p93_s93_Psame--conv_f256_k16_s8_Psame_arelu--conv_f256_k16_s8_Psame_arelu",
+    }
+    specified_args = common.argument_defaults(args, defaults)
+    common.name(args, specified_args, "wavenet")
 
     return args
 

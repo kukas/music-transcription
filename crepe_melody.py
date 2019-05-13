@@ -86,15 +86,26 @@ def create_model(self, args):
     self.training = common.optimizer(self, args)
 
 def parse_args(argv):
-    parser = common.common_arguments({"context_width": 978})
-    parser.add_argument("--capacity_multiplier", default=16, type=int, help="Capacity multiplier of the model")
-    parser.add_argument("--multiresolution_convolution", default=0, type=int, help="Number of different resolution of the first convolution layer")
-    parser.add_argument("--variable_stride", action='store_true', default=False, help="Variable stride")
-    parser.add_argument("--first_layer_capacity", default=1, type=int, help="Capacity multiplier")
+    parser = common.common_arguments_parser()
+    # Model specific arguments
+    parser.add_argument("--input_normalization", type=int, help="Enable normalizing each input example")
+    parser.add_argument("--capacity_multiplier", type=int, help="Capacity multiplier of the model")
+    parser.add_argument("--multiresolution_convolution", type=int, help="Number of different resolution of the first convolution layer")
+    parser.add_argument("--variable_stride", action='store_true', help="Variable stride")
+    parser.add_argument("--first_layer_capacity", type=int, help="Capacity multiplier")
 
     args = parser.parse_args(argv)
-
-    common.name(args, "crepe")
+    defaults = {
+        # Change some of the common defaults
+        "context_width": 978,
+        "input_normalization": 1,
+        "capacity_multiplier": 16,
+        "multiresolution_convolution": 0,
+        "variable_stride": False,
+        "first_layer_capacity": 1,
+    }
+    specified_args = common.argument_defaults(args, defaults)
+    common.name(args, specified_args, "crepe")
 
     return args
 
