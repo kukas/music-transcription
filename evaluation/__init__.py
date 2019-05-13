@@ -35,7 +35,7 @@ def get_dataset_list():
         (
             datasets.mirex05.prefix,
             "test",
-            "MIREX05",
+            "MIREX05 train.",
             list(datasets.mirex05.generator(join(modulepath, "../data/mirex05")))
         ),
         (

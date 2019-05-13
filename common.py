@@ -5,7 +5,7 @@ import datasets
 import datetime
 import time
 import sys
-from model import VD, VisualOutputHook, MetricsHook, MetricsHook_mf0, VisualOutputHook_mf0, SaveBestModelHook, safe_div
+from model import VD, VisualOutputHook, MetricsHook, MetricsHook_mf0, VisualOutputHook_mf0, SaveBestModelHook, safe_div, SaveSaliencesHook
 
 import librosa
 import numpy as np
@@ -181,13 +181,13 @@ def est_notes(self, args):
         if args.peak_est_averaging > 0.0:
             peak_est_mask = tf.cast(tf.abs(tf.tile(tf.reshape(peak_est, [-1, self.annotations_per_window, 1]), [1, 1, self.bin_count]) - self.note_bins) < args.peak_est_averaging, tf.float32)
             probs_around_peak = self.note_probabilities*peak_est_mask
-        probs_around_peak_sums = tf.reduce_sum(probs_around_peak, axis=2)
+            probs_around_peak_sums = tf.reduce_sum(probs_around_peak, axis=2)
             # self.est_notes_confidence = probs_around_peak_sums / tf.math.count_nonzero(peak_est_mask, axis=2, dtype=tf.float32)
 
             est_notes = safe_div(tf.reduce_sum(self.note_bins * probs_around_peak, axis=2), probs_around_peak_sums) + args.min_note
         else:
             est_notes = peak_est + args.min_note
-
+        
         self.est_notes_confidence = tf.reduce_max(self.note_probabilities, axis=2)
 
         if self.voicing_logits is not None:
@@ -326,8 +326,10 @@ def harmonic_stacking(self, input, undertones, overtones, offset=0):
 
 def regularization(voicing_layer, args, training=None):
     if args.batchnorm:
+        print("add batchnorm")
         voicing_layer = tf.layers.batch_normalization(voicing_layer, training=training)
     if args.dropout:
+        print("add dropout")
         voicing_layer = tf.layers.dropout(voicing_layer, args.dropout, training=training)
     return voicing_layer
 

@@ -32,7 +32,7 @@ class Annotation:
         self.notes = self.notes.astype(np.float32)
 
     @staticmethod
-    def from_time_series(annot_path, uid, hop_samples=256):
+    def from_time_series(annot_path, uid, hop_samples=256, unique_mf0=False):
         check_dir(CACHED_FILES_PATH)
         # Check if there is a cached numpy binary
         cached_path = os.path.join(CACHED_FILES_PATH, "{}_{}.npz".format(uid, hop_samples))
@@ -64,6 +64,8 @@ class Annotation:
                         voicing[i] += 1
 
             annot = Annotation(times_new, freqs_aligned, voicing=voicing)
+            if unique_mf0:
+                annot = annot.unique_mf0()
 
             np.savez(cached_path, annot.times, annot.freqs, annot.notes, annot.voicing)
 
