@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 
 import datasets
-from model import NetworkMelody
+from model import NetworkMelody, AdjustVoicingHook
 from collections import namedtuple
 import sys
 import common
@@ -81,6 +81,8 @@ def create_model(self, args):
     output_layer = tf.layers.dense(audio_net, self.annotations_per_window*self.bin_count, activation=None, bias_regularizer=tf.nn.l2_loss, kernel_regularizer=tf.nn.l2_loss)
     self.note_logits = tf.reshape(output_layer, [-1, self.annotations_per_window, self.bin_count])
 
+    self.voicing_threshold = tf.Variable(0.15, trainable=False)
+
     self.loss = common.loss(self, args)
     self.est_notes = common.est_notes(self, args)
     self.training = common.optimizer(self, args)
@@ -133,6 +135,11 @@ def construct(args):
             return tf_dataset.shuffle(10**5).map(dataset.prepare_example, num_parallel_calls=4).filter(dataset.is_example_voiced).batch(args.batch_size).prefetch(10)
 
         train_dataset, test_datasets, validation_datasets = common.prepare_datasets(args.datasets, args, preload_fn, dataset_transform, dataset_transform_train)
+
+        # Add voicing hook to the validation dataset
+        for vd in validation_datasets:
+            if not vd.name.startswith("small_"):
+                vd.hooks.append(AdjustVoicingHook())
 
         network.construct(args, create_model, train_dataset.dataset.output_types, train_dataset.dataset.output_shapes)
 
