@@ -4,6 +4,56 @@ A small framework for conducting deep learning experiments for the [MIREX AME ta
 
 <!-- ![piano roll](docs/pianoroll.png) -->
 
+## Installation
+
+### 1. Prepare the data
+
+To replicate the experiments on the available MIREX datasets please:
+
+- Download the evaluation datasets:
+    - [ORCHSET](https://www.upf.edu/web/mtg/orchset)
+    - [MIREX05 and ADC04](https://labrosa.ee.columbia.edu/projects/melody/) (links "adc2004_full_set.zip" and "Zip file of the LabROSA training data")
+- Extract the contents to `./data/` directory.
+
+For training we used [MedleyDB dataset](https://medleydb.weebly.com/) which is available after a permission request. MedleyDB is offered free of charge for non-commercial research use.
+- After obtaining the dataset, extract it to `./data/` directory.
+
+### 2. Prepare the pretrained models
+
+Download the models and extract them to `models/` directory.
+- CREPE inspired model
+- WaveNet inspired model
+- **HCNN model (no context)**
+- **HCNN model (with context)**
+
+### 3. Prepare the environment
+
+You can either install the dependencies system-wide or use the included Anaconda environment file.
+
+#### 3.b) Install the Anaconda environment (Recommended)
+
+    conda env create -f environment.yml
+    conda activate melody_extraction
+
+Important: if you own a GPU compatible with Tensorflow, install `tensorflow-gpu`:
+
+    conda install tensorflow-gpu
+
+#### 3.a) Installing the dependencies using pip
+
+    pip install -r requirements.txt
+
+### 4. Run the evaluations
+
+To evaluate the HCNN no-context model, run:
+
+    python -u spectrogram.py --dataset adc04 mirex05 orchset --frame_width 256 --annotations_per_window 1 --spectrogram_undertone_stacking 8 --spectrogram_overtone_stacking 8 --filters 16 --stacks 8 --undertone_stacking 2 --overtone_stacking 3  --evaluate --logdir models/0513_173718-spctrgrm-bs16-fw256-apw1-ulw1.0-sus8-sos8-f16-s8-us2-os3/
+
+### 5. Training
+
+MedleyDB is required for training the models. Example training commands are included as comments in `run_evaluation_models.sh`. Also it should be noted, that running the training on a Tensorflow-compatible GPU is almost mandatory. Provided models were trained on NVIDIA GTX 1070.
+
+
 ## Disclaimer
 
 This framework was created for use in my bachelor thesis. Since the focus of the thesis wasn't on the code but on the results of the experiments, this repository doesn't contain the best practices. Also with the release of Tensorflow r2 a part of the code is deprecated now and I am most probably not going to refactor it. Still a lot of the code might be useful to someone and the experiments are made to be easily replicable.
@@ -49,52 +99,6 @@ This framework was created for use in my bachelor thesis. Since the focus of the
     - note prediction distance histogram
 
 And more...
-
-## Installation
-
-### 1. Prepare the data
-
-To replicate the experiments on the available MIREX datasets please:
-
-- Download the evaluation datasets:
-    - [ORCHSET](https://www.upf.edu/web/mtg/orchset)
-    - [MIREX05 and ADC04](https://labrosa.ee.columbia.edu/projects/melody/) (links "adc2004_full_set.zip" and "Zip file of the LabROSA training data")
-- Extract the contents to `./data/` directory.
-
-For training we used [MedleyDB dataset](https://medleydb.weebly.com/) which is available after a permission request. MedleyDB is offered free of charge for non-commercial research use.
-- After obtaining the dataset, extract it to `./data/` directory.
-
-### 2. Prepare the pretrained models
-
-Download the models and extract them to `models/` directory.
-- CREPE inspired model
-- WaveNet inspired model
-- **HCNN model (no context)**
-- **HCNN model (with context)**
-
-### 3. Prepare the environment
-
-You can either install the dependencies system-wide or use the included Anaconda environment file.
-
-#### 3.b) Install the Anaconda environment (Recommended)
-
-    conda env create -f environment.yml
-    conda activate melody_extraction
-
-#### 3.a) Installing the dependencies using pip
-
-    pip install -r requirements.txt
-
-### 4. Run the evaluations
-
-To evaluate the HCNN no-context model, run:
-
-    python -u spectrogram.py --dataset adc04 mirex05 orchset --frame_width 256 --annotations_per_window 1 --spectrogram_undertone_stacking 8 --spectrogram_overtone_stacking 8 --filters 16 --stacks 8 --undertone_stacking 2 --overtone_stacking 3  --evaluate --logdir models/0513_173718-spctrgrm-bs16-fw256-apw1-ulw1.0-sus8-sos8-f16-s8-us2-os3/
-
-### 5. Training
-
-MedleyDB is required for training the models. Example training commands are included as comments in `run_evaluation_models.sh`. Also it should be noted, that running the training on a Tensorflow-compatible GPU is almost mandatory. Provided models were trained on NVIDIA GTX 1070.
-
 
 ## Citations
 
