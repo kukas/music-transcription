@@ -4,7 +4,8 @@ import mir_eval
 import datasets
 from .audio import check_dir
 
-CACHED_FILES_PATH = "./cached"
+modulepath = os.path.dirname(os.path.abspath(__file__))
+CACHED_FILES_PATH = os.path.join(modulepath, "..", "cached")
 
 ''' Handles the common time-frequency annotation format. '''
 class Annotation:

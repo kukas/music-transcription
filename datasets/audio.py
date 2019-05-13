@@ -7,7 +7,8 @@ def check_dir(path):
     if not os.path.isdir(path):
         os.makedirs(path)
 
-PROCESSED_FILES_PATH = "./processed"
+modulepath = os.path.dirname(os.path.abspath(__file__))
+PROCESSED_FILES_PATH = os.path.join(modulepath, "..", "processed")
 
 ''' Audio container
 Audio can be represented in different forms - as raw audio with various

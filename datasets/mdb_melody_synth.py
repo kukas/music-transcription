@@ -4,8 +4,9 @@ from glob import glob
 from .common import melody_dataset_generator, load_melody_dataset, parallel_preload
 from .medleydb import get_split
 
-prefix = "mdb_melody_synth"
+modulepath = os.path.dirname(os.path.abspath(__file__))
 
+prefix = "mdb_melody_synth"
 
 def generator(dataset_root):
     dataset_audio_path = os.path.join(dataset_root, "audio_mix")
@@ -22,7 +23,7 @@ def prepare(preload_fn, threads=None):
     medleydb_split = get_split()
 
     def mdb_split(name):
-        gen = generator("data/MDB-melody-synth/")
+        gen = generator(os.path.join(modulepath, "..", "data", "MDB-melody-synth"))
         return filter(lambda x: x.track_id in medleydb_split[name], gen)
 
     train_data = load_melody_dataset(prefix, mdb_split("train"))
