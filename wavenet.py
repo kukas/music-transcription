@@ -11,12 +11,29 @@ import common
 
 
 def create_model(self, args):
-    window = self.window
+    receptive_field = args.stack_number * (args.max_dilation * 2) - (args.stack_number - 1)
+    receptive_field_ms = (receptive_field * 1000) / args.samplerate
+
+    context_width = self.context_width
+
+    print("receptive field: {} samples, {:.4f} ms".format(receptive_field, receptive_field_ms))
+    if self.context_width > receptive_field:
+        context_width = receptive_field
+        diff = self.context_width - receptive_field
+        window = self.window[:, diff:-diff]
+        print("cutting window {}->{}".format(self.window.shape, window.shape))
+    else:
+        window = self.window
+        print("warning: receptive field larger than context width")
+    
     window = common.input_normalization(window, args)
     window_with_channel = tf.expand_dims(window, axis=2)
 
-    initial_layer = tf.layers.conv1d(window_with_channel, args.residual_channels, args.initial_filter_width, 1, args.initial_filter_padding,
-                                     activation=None, bias_regularizer=tf.nn.l2_loss, kernel_regularizer=tf.nn.l2_loss)
+    initial_layer = window_with_channel
+    if args.initial_filter_width > 0:
+        initial_layer = tf.layers.conv1d(initial_layer, args.residual_channels, args.initial_filter_width, 1, args.initial_filter_padding,
+                                        activation=None, bias_regularizer=tf.nn.l2_loss, kernel_regularizer=tf.nn.l2_loss)
+
 
     skip_connections = []
     dilations = [2**x for x in range(int(np.log2(args.max_dilation))+1)]*args.stack_number
@@ -40,7 +57,17 @@ def create_model(self, args):
                 print(skip)
 
     with tf.name_scope('postprocessing'):
-        skip_sum = tf.math.add_n(skip_connections)
+        if args.skip == "add":
+            skip_sum = tf.math.add_n(skip_connections)
+        elif args.skip == "concat":
+            skip_sum = tf.concat(skip_connections, -1)
+        elif args.skip == "last":
+            skip_sum = skip_connections[-1]
+        
+        if context_width:
+            skip_sum = skip_sum[:, context_width:-context_width, :]
+        
+        print("skip output", skip_sum.shape)
         skip = tf.nn.relu(skip_sum)
         if args.skip_layer_dropout:
             skip = tf.layers.dropout(skip, args.skip_layer_dropout, training=self.is_training)
@@ -49,12 +76,12 @@ def create_model(self, args):
         # skip = tf.layers.conv1d(skip, self.bin_count, 3, 1, "same", activation=tf.nn.relu, bias_regularizer=tf.nn.l2_loss, kernel_regularizer=tf.nn.l2_loss)
         # output_layer = tf.layers.conv1d(skip, self.bin_count, 3, 1, "same", activation=None, bias_regularizer=tf.nn.l2_loss, kernel_regularizer=tf.nn.l2_loss)
 
-        output_layer = common.add_layers_from_string(skip, args.postprocessing)
+        output_layer = common.add_layers_from_string(self, skip, args.postprocessing)
 
         # skip = tf.layers.conv1d(skip, 256, 16, 8, "same", activation=tf.nn.relu, use_bias=args.use_biases, bias_regularizer=tf.nn.l2_loss, kernel_regularizer=tf.nn.l2_loss)
         # skip = tf.layers.conv1d(skip, 256, 16, 8, "same", activation=tf.nn.relu, use_bias=args.use_biases, bias_regularizer=tf.nn.l2_loss, kernel_regularizer=tf.nn.l2_loss)
         # skip = tf.nn.relu(skip_sum)
-        print(output_layer.shape)
+        print("after skip output processing", output_layer.shape)
 
     if output_layer.shape.as_list() != [None, self.annotations_per_window, self.bin_count]:
         print("shape not compatible, adding FC layer")

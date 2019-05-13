@@ -349,6 +349,8 @@ def conv(inputs, filters, size, strides, padding, activation=None, dilation_rate
 
 def add_layers_from_string(self, in_layer, layers_string):
     print("constructing", layers_string)
+    if layers_string == "":
+        return in_layer
     for layer in layers_string.split("--"):
         params = layer.split("_")
         layer_type = params.pop(0)
@@ -367,6 +369,9 @@ def add_layers_from_string(self, in_layer, layers_string):
 
         elif layer_type == "avgpool":
             in_layer = tf.layers.average_pooling1d(in_layer, pool_size=int(p["p"]), strides=int(p["s"]), padding=p["P"])
+
+        elif layer_type == "maxpool":
+            in_layer = tf.layers.max_pooling1d(in_layer, pool_size=int(p["p"]), strides=int(p["s"]), padding=p["P"])
 
         elif layer_type == "dropout":
             in_layer = tf.layers.dropout(in_layer, float(p["r"]), training=self.is_training)
