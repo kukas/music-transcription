@@ -1,5 +1,5 @@
 import evaluation
-import pandas
+import pandas as pd
 import os
 import numpy as np
 import matplotlib.pyplot as plt
@@ -16,7 +16,7 @@ def load_data(paths, attributes=None, attr_names=None):
             for name, attr in zip(attr_names, attrs):
                 results[name] = attr
         data.append(results)
-    return pandas.concat(data)
+    return pd.concat(data)
 
 
 def ld(attr_names, attr_types, regex, experiments_dir, verbose=False):
@@ -48,6 +48,17 @@ def to_latex(df):
     aliases = {"Raw Pitch Accuracy": "RPA", "Raw Chroma Accuracy": "RCA", "Voicing Accuracy": "VA", "Overall Accuracy": "OA", "Voicing False Alarm": "VFA", "Voicing Recall": "VR"}
     header = map(lambda x: aliases[x] if x in aliases else x, df.columns.values)
     print(df.to_latex(float_format=lambda x: "%.3f"%x, bold_rows=True, header=list(header), index=False))
+
+
+def get_min_max(datas, attr_names, split="MedleyDB valid."):
+    means = []
+    for d in datas:
+        means.append(d[d.Dataset == split].groupby(attr_names).mean())
+    means = pd.concat(means)
+    vminRPA, vmaxRPA = means["Raw Pitch Accuracy"].min(), means["Raw Pitch Accuracy"].max()
+    vminRCA, vmaxRCA = means["Raw Chroma Accuracy"].min(), means["Raw Chroma Accuracy"].max()
+
+    return vminRPA, vmaxRPA, vminRCA, vmaxRCA
 
 
 def plot_grid(data, attr_names, name="test", split="MedleyDB valid.", axs=None, vminRPA=None, vmaxRPA=None, vminRCA=None, vmaxRCA=None):
