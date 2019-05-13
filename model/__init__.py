@@ -116,7 +116,8 @@ class Network:
             self.saver_best = tf.train.Saver(max_to_keep=0)
 
             self.summary_writer = tf.summary.FileWriter(self.logdir, graph=self.session.graph, flush_secs=30)
-
+            
+            self.train_stats_every = 1000
             self.raw_pitch_accuracy = None
             self.summaries = None
 
@@ -219,6 +220,9 @@ class Network:
                         print("step {};".format(step), end=" ")
                     
                     elapsed = time.time() - timer
+                    if self.args.stop_if_too_slow is not None and elapsed > self.args.stop_if_too_slow:
+                        self.save(self.args.checkpoint)
+                        return
 
                     print("b {0}; t {1:.2f}; RPA {2:.2f}; loss {3:.4f}".format(b, elapsed, raw_pitch_accuracy, loss))
                     timer = time.time()
@@ -240,6 +244,9 @@ class Network:
                 
                 if flush:
                     self.summary_writer.flush()
+                if self.args.iterations is not None and b >= self.args.iterations:
+                    self.args.epochs = 0 # breaks the outer loop
+                    break
 
         print("=== done ===")
 
@@ -387,7 +394,7 @@ class NetworkMelody(Network):
             acc_sum = tf.Variable(0., dtype=tf.float64)
             self.accuracy = acc_sum / self.train_stats_every
             tf.summary.scalar("train/overall_accuracy", self.accuracy)
-
+            
             loss_sum = tf.Variable(0.)
             self.average_loss = loss_sum / self.train_stats_every
             tf.summary.scalar("train/average_loss", self.average_loss)
