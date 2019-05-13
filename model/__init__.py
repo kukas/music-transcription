@@ -14,7 +14,11 @@ from collections import namedtuple
 from math import floor, ceil
 import numpy as np
 
-from mem_top import mem_top
+try:
+    from mem_top import mem_top
+except ImportError:
+    print("mem_top package not found")
+
 
 import tensorflow as tf
 

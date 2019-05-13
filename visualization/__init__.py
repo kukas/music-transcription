@@ -12,7 +12,11 @@ import tensorflow as tf
 
 import datasets
 
-from IPython.display import Audio
+try:
+    from IPython.display import Audio
+except ImportError:
+    pass
+
 import itertools
 
 def audioplayer(path):
