@@ -6,7 +6,7 @@ import evaluation
 import datetime
 import time
 import sys
-from model import VD, VisualOutputHook, MetricsHook, MetricsHook_mf0, VisualOutputHook_mf0, SaveBestModelHook, safe_div, SaveSaliencesHook
+from model import VD, VisualOutputHook, MetricsHook, MetricsHook_mf0, VisualOutputHook_mf0, SaveBestModelHook, safe_div, SaveSaliencesHook, CSVOutputWriterHook
 import librosa
 import numpy as np
 import os
@@ -396,9 +396,9 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
     if small_hooks is None:
         small_hooks = [MetricsHook(), VisualOutputHook(True, True, False, False)]
     if valid_hooks is None:
-        valid_hooks = [MetricsHook(write_estimations=True), VisualOutputHook(False, False, True, True), SaveBestModelHook(args.logdir)]
+        valid_hooks = [MetricsHook(), VisualOutputHook(False, False, True, True), SaveBestModelHook(args.logdir), CSVOutputWriterHook()]
     if test_hooks is None:
-        test_hooks = [MetricsHook(write_summaries=False, print_detailed=False, write_estimations=True)]
+        test_hooks = [MetricsHook(write_summaries=False, print_detailed=False), CSVOutputWriterHook()]
         if args.save_salience:
             test_hooks.append(SaveSaliencesHook())
     
@@ -408,16 +408,17 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
     train_data = []
 
     if args.predict:
-        uid = "predict_"+os.path.splitext(os.path.basename(args.predict))[0]
+        output_path = os.path.splitext(os.path.basename(args.predict))[0]
+        uid = os.path.splitext(os.path.basename(args.predict))[0]
         # prepare audio
-        audio = Audio(audio_path, uid)
-        aa = AnnotatedAudio(None, audio)
-        track = preload_fn([aa])
-        predict_dataset = datasets.AADataset(track, args, dataset_transform)
+        audio = datasets.Audio(args.predict, uid)
+        aa = datasets.AnnotatedAudio((None, uid), audio)
+        preload_fn(aa)
+        predict_dataset = datasets.AADataset([aa], args, dataset_transform)
         test_datasets += [
-            VD("predict", predict_dataset, 0, test_hooks),
+            VD("predict", predict_dataset, 0, [CSVOutputWriterHook(output_path="./predict_outputs")]),
         ]
-        return test_datasets, test_datasets, test_datasets
+        return predict_dataset, test_datasets, []
 
     if datasets.medleydb.prefix in which or datasets.medleydb.prefix+"_mel4" in which:
         if datasets.medleydb.prefix+"_mel4" in which:

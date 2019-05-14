@@ -96,28 +96,39 @@ class VisualOutputHook(EvaluationHook):
             fig = vis.draw_hists(reference, estimation)
             add_fig(fig, ctx.summary_writer, prefix+"histograms", global_step)
 
-
-class MetricsHook(EvaluationHook):
-    def __init__(self, write_summaries=True, print_detailed=False, write_estimations=False):
-        self.print_detailed = print_detailed
-        self.write_summaries = write_summaries
-        self.write_estimations = write_estimations
+class CSVOutputWriterHook(EvaluationHook):
+    def __init__(self, output_path=None):
+        self.output_path = output_path
 
     def before_run(self, ctx, vd):
         self.write_estimations_timer = 0
+        return []
+
+    def every_aa(self, ctx, vd, aa, est_time, est_freq):
+        timer = time.time()
+        est_dir = self.output_path
+        if self.output_path is None:
+            est_dir = os.path.join(ctx.logdir, ctx.args.checkpoint+"-f0-outputs", vd.name+"-test-melody-outputs")
+        os.makedirs(est_dir, exist_ok=True)
+        with open(os.path.join(est_dir, aa.audio.filename+".csv"), 'w') as f:
+            writer = csv.writer(f)
+            writer.writerows(zip(est_time, est_freq))
+        self.write_estimations_timer += time.time()-timer
+
+    def after_run(self, ctx, vd, additional):
+        print("csv outputs written in {:.2f}s".format(self.write_estimations_timer))
+
+
+class MetricsHook(EvaluationHook):
+    def __init__(self, write_summaries=True, print_detailed=False):
+        self.print_detailed = print_detailed
+        self.write_summaries = write_summaries
+
+    def before_run(self, ctx, vd):
         self.all_metrics = []
         return [ctx.loss]
 
     def every_aa(self, ctx, vd, aa, est_time, est_freq):
-        if self.write_estimations:
-            timer = time.time()
-            est_dir = os.path.join(ctx.logdir, ctx.args.checkpoint+"-f0-outputs", vd.name+"-test-melody-outputs")
-            os.makedirs(est_dir, exist_ok=True)
-            with open(os.path.join(est_dir, aa.audio.filename+".csv"), 'w') as f:
-                writer = csv.writer(f)
-                writer.writerows(zip(est_time, est_freq))
-            self.write_estimations_timer += time.time()-timer
-
         ref_time = aa.annotation.times
         ref_freq = aa.annotation.freqs[:, 0]
 
@@ -167,8 +178,6 @@ class MetricsHook(EvaluationHook):
 
     def after_run(self, ctx, vd, additional):
         self._save_metrics(ctx, vd, additional)
-        if self.write_estimations:
-            print("csv outputs written in {:.2f}s".format(self.write_estimations_timer))
         print("{}: {}".format(vd.name, self._title(ctx)))
 
 class SaveSaliencesHook(EvaluationHook):

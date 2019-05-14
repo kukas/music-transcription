@@ -33,6 +33,9 @@ class Annotation:
 
     @staticmethod
     def from_time_series(annot_path, uid, hop_samples=256, unique_mf0=False):
+        if annot_path is None:
+            return None
+
         check_dir(CACHED_FILES_PATH)
         # Check if there is a cached numpy binary
         cached_path = os.path.join(CACHED_FILES_PATH, "{}_{}.npz".format(uid, hop_samples))
