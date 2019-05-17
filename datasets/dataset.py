@@ -124,7 +124,8 @@ class AADataset:
 
         window_start_sample = int(np.round(times[0]*self.samplerate))
         audio, spectrogram = aa.audio.get_window_at_sample(window_start_sample, self.inner_window_size, self.context_width)
-
+        if audio is None:
+            audio = np.zeros((0, 0), dtype=np.int16)
         if spectrogram is None:
             spectrogram = np.zeros((0, 0, 0, 0), dtype=np.uint16)
 

@@ -75,6 +75,8 @@ class Audio:
             self.spectrogram = spec_function(samples, self.samplerate)
             np.save(spec_path, self.spectrogram)
             # print("shape", self.spectrogram.shape)
+        # We don't need the audio anymore
+        self.samples = []
         return self
 
     @property
@@ -157,22 +159,27 @@ class Audio:
         return spectrogram
 
     def slice(self, start, end):
-        if len(self.samples) == 0:
-            raise Exception("Audio samples are empty")
+        if len(self.samples) == 0 and self.spectrogram is None:
+            raise Exception("Both audio samples and spectrogram are empty. Audio not loaded")
 
         sliced = Audio(self.path, self.uid)
         sliced.samplerate = self.samplerate
         b0, b1 = int(start*self.samplerate), int(end*self.samplerate)
-        sliced.samples = self.samples[b0:b1]
-
-        if len(sliced.samples) == 0:
-            raise Exception("Sliced audio samples are empty")
-
         sliced.samples_count = b1-b0
+
+        if len(self.samples) != 0:
+            sliced.samples = self.samples[b0:b1]
+
+            if len(sliced.samples) == 0:
+                raise Exception("Sliced audio samples are empty")
+
 
         if self.spectrogram is not None:
             sliced.spectrogram_hop_size = self.spectrogram_hop_size
             sliced.spectrogram = self.spectrogram[:, :, int(b0/self.spectrogram_hop_size):int(b1/self.spectrogram_hop_size)]
+
+            if sliced.spectrogram.shape[2] == 0:
+                raise Exception("Sliced spectrogram is empty")
 
         return sliced
 
