@@ -49,9 +49,11 @@ To evaluate the HCNN no-context model, run:
 
     python -u spectrogram.py --dataset adc04 mirex05 orchset --frame_width 256 --annotations_per_window 1 --spectrogram_undertone_stacking 8 --spectrogram_overtone_stacking 8 --filters 16 --stacks 8 --undertone_stacking 2 --overtone_stacking 3  --evaluate --logdir models/0513_173718-spctrgrm-bs16-fw256-apw1-ulw1.0-sus8-sos8-f16-s8-us2-os3/
 
+For the rest of evaluation commands, see `run_evaluation_models.sh`.
+
 ### 5. Training
 
-MedleyDB is required for training the models. Example training commands are included as comments in `run_evaluation_models.sh`. Also it should be noted, that running the training on a Tensorflow-compatible GPU is almost mandatory. Provided models were trained on NVIDIA GTX 1070.
+MedleyDB is required for training the models. Example training commands are included as comments in `run_evaluation_models.sh`. Also it should be noted, that running the training on a Tensorflow-compatible GPU is almost mandatory. Provided models were trained on NVIDIA GTX 1070. **All the experiments included in the bachelor thesis can be replicated using the scripts `run_experiments_*.sh`.**
 
 ## Dataset splits
 
