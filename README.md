@@ -20,7 +20,7 @@ For training we used [MedleyDB dataset](https://medleydb.weebly.com/) which is a
 
 ### 2. Prepare the pretrained models
 
-Download the models and extract them to `models/` directory.
+[Download the models](http://jirkabalhar.cz/melody_extraction_models.zip) and extract them to `models/` directory. The archive contains:
 - CREPE inspired model
 - WaveNet inspired model
 - **HCNN model (no context)**
