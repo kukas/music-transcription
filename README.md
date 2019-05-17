@@ -53,6 +53,9 @@ To evaluate the HCNN no-context model, run:
 
 MedleyDB is required for training the models. Example training commands are included as comments in `run_evaluation_models.sh`. Also it should be noted, that running the training on a Tensorflow-compatible GPU is almost mandatory. Provided models were trained on NVIDIA GTX 1070.
 
+## Dataset splits
+
+Dataset splits used in the bachelor thesis are located in `data/`. MedleyDB and MDB-melody-synth split is in file `mdb_ismir_split.json`, WJazzD split is in `wjazzd_split.json`.
 
 ## Disclaimer
 
