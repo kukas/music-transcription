@@ -268,16 +268,17 @@ def spectrograms(args):
         FMIN = 32.7
         BINS_PER_OCTAVE = 60
         N_BINS = BINS_PER_OCTAVE*9
-        top_db = 80.0
+        top_db = args.spectrogram_top_db
+        filter_scale = args.spectrogram_filter_scale
 
         def spectrogram_function(audio, samplerate):
-            cqt = librosa.cqt(audio, sr=samplerate, hop_length=HOP_LENGTH, fmin=FMIN, n_bins=N_BINS, bins_per_octave=BINS_PER_OCTAVE, filter_scale=1)
+            cqt = librosa.cqt(audio, sr=samplerate, hop_length=HOP_LENGTH, fmin=FMIN, n_bins=N_BINS, bins_per_octave=BINS_PER_OCTAVE, filter_scale=filter_scale)
 
             log_cqt = (librosa.core.amplitude_to_db(np.abs(cqt), ref=np.max, top_db=top_db) / top_db) + 1.0
             log_cqt = np.expand_dims(log_cqt, 0)
             return (log_cqt*65535).astype(np.uint16)
 
-        spectrogram_thumb = "cqt-fmin{}-oct{}-octbins{}-hop{}-db{}-uint16".format(FMIN, N_BINS/BINS_PER_OCTAVE, BINS_PER_OCTAVE, HOP_LENGTH, top_db)
+        spectrogram_thumb = "cqt-fmin{}-oct{}-octbins{}-hop{}-db{}-fs{}-uint16".format(FMIN, N_BINS/BINS_PER_OCTAVE, BINS_PER_OCTAVE, HOP_LENGTH, top_db, filter_scale)
         spectrogram_info = (1, N_BINS, HOP_LENGTH, FMIN)
 
     elif args.spectrogram == "cqt_fs":

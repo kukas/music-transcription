@@ -158,6 +158,8 @@ def parse_args(argv):
     # Model specific arguments
     # input
     parser.add_argument("--spectrogram", type=str, help="Spectrogram method")
+    parser.add_argument("--spectrogram_top_db", type=float, help="Spectrogram top_db")
+    parser.add_argument("--spectrogram_filter_scale", type=float, help="Spectrogram filter_scale")
     parser.add_argument("--spectrogram_undertone_stacking", type=int, help="spectrogram undertone stacking")
     parser.add_argument("--spectrogram_overtone_stacking", type=int, help="spectrogram overtone stacking")
     parser.add_argument("--cut_context", type=int, help="Cut unnecessary context, doesn't work with dilations!")
@@ -199,6 +201,8 @@ def parse_args(argv):
         "learning_rate_decay_steps": 10000,
         "learning_rate_decay": 0.8,
         "spectrogram": "cqt",
+        "spectrogram_top_db": 80,
+        "spectrogram_filter_scale": 1.0,
         "spectrogram_undertone_stacking": 1,
         "spectrogram_overtone_stacking": 5,
         "cut_context": 1,
