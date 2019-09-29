@@ -47,6 +47,8 @@ def common_arguments_parser():
     parser.add_argument("--rewind", action='store_true', help="Rewind back to the same point in training.")
     parser.add_argument("--save_salience", action='store_true', help="Save salience output when evaluating.")
     parser.add_argument("--predict", default=None, type=str, help="Extract the melody from the input file.")
+    parser.add_argument("--output_file", default=None, type=str, help="Extract the melody to the output file.")
+    parser.add_argument("--output_format", default="mirex", type=str, help="output file format.")
     parser.add_argument("--evaluate", action='store_true', help="Evaluate after training. If an existing checkpoint is specified, it will be evaluated only.")
     parser.add_argument("--evaluate_every", type=int, help="Evaluate validation set every N steps.")
     parser.add_argument("--evaluate_small_every", type=int, help="Evaluate small validation set every N steps.")
@@ -416,8 +418,12 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
         aa = datasets.AnnotatedAudio((None, uid), audio)
         preload_fn(aa)
         predict_dataset = datasets.AADataset([aa], args, dataset_transform)
+
+        output_file = None
+        if args.output_file:
+            output_file = args.output_file
         test_datasets += [
-            VD("predict", predict_dataset, 0, [CSVOutputWriterHook(output_path="./predict_outputs")]),
+            VD("predict", predict_dataset, 0, [CSVOutputWriterHook(output_path="./predict_outputs", output_file=output_file, output_format=args.output_format)]),
         ]
         return predict_dataset, test_datasets, []
 

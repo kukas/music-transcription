@@ -97,8 +97,10 @@ class VisualOutputHook(EvaluationHook):
             add_fig(fig, ctx.summary_writer, prefix+"histograms", global_step)
 
 class CSVOutputWriterHook(EvaluationHook):
-    def __init__(self, output_path=None):
+    def __init__(self, output_path=None, output_file=None, output_format="mdb"):
         self.output_path = output_path
+        self.output_file = output_file
+        self.output_format = output_format
 
     def before_run(self, ctx, vd):
         self.write_estimations_timer = 0
@@ -106,12 +108,20 @@ class CSVOutputWriterHook(EvaluationHook):
 
     def every_aa(self, ctx, vd, aa, est_time, est_freq):
         timer = time.time()
-        est_dir = self.output_path
-        if self.output_path is None:
-            est_dir = os.path.join(ctx.logdir, ctx.args.checkpoint+"-f0-outputs", vd.name+"-test-melody-outputs")
-        os.makedirs(est_dir, exist_ok=True)
-        with open(os.path.join(est_dir, aa.audio.filename+".csv"), 'w') as f:
-            writer = csv.writer(f)
+        if self.output_file is None:
+            est_dir = self.output_path
+            if self.output_path is None:
+                est_dir = os.path.join(ctx.logdir, ctx.args.checkpoint+"-f0-outputs", vd.name+"-test-melody-outputs")
+            os.makedirs(est_dir, exist_ok=True)
+            output_file = os.path.join(est_dir, aa.audio.filename+".csv")
+        else:
+            output_file = self.output_file
+
+        with open(output_file, 'w') as f:
+            if self.output_format == "mdb":
+                writer = csv.writer(f)
+            if self.output_format == "mirex":
+                writer = csv.writer(f, delimiter="\t")
             writer.writerows(zip(est_time, est_freq))
         self.write_estimations_timer += time.time()-timer
 
