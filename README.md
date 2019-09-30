@@ -1,4 +1,4 @@
-# Automatic Music Transcription
+# Audio Melody Extraction
 
 A small python framework for conducting deep learning experiments for the [MIREX AME task](https://www.music-ir.org/mirex/wiki/2019:Audio_Melody_Extraction). The aim of this project is to create a set of utility functions and classes that make the experiments easier to implement and replicate. A sample set of experiments is included. The classes were implemented to be reusable for the [Multiple Fundamental Frequency Estimation Tracking task](https://www.music-ir.org/mirex/wiki/2019:Multiple_Fundamental_Frequency_Estimation_%26_Tracking).
 
@@ -12,7 +12,7 @@ Method       | ADC04     | MDB-melody-synth test set | MIREX05 training set | Me
 *HCNN noctx* |   0.735   |                   0.636   |              0.728   |         0.645     |   0.457   |       **0.714**
 *HCNN ctx*   | **0.746** |                   0.637   |              0.704   |       **0.646**   | **0.525** |         0.711
 
-You can find the list of tracks included in the test sets in `data/` directory.
+You can find the list of tracks included in the test sets in `data/` directory. CSV outputs of the algorithms that were used to compute this table can be found [here](http://jirkabalhar.cz/melody-outputs.zip)
 
 ## Installation
 
