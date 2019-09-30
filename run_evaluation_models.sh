@@ -1,5 +1,32 @@
 set -xe
 
+# ====== MIREX models ================
+
+# === HCNN no context ===
+PARAMS="--frame_width 256 --annotations_per_window 1 --spectrogram_undertone_stacking 8 --spectrogram_overtone_stacking 8 --unvoiced_loss_weight 1.0  --filters 12 --stacks 8 --undertone_stacking 3 --overtone_stacking 5 --spectrogram cqt --spectrogram_top_db 110"
+LOGDIR="models/0926_024712-spctrgrm-fw256-apw1-lr0.0005-ulw1.0-scqt-std110.0-sus8-sos8-f12-s8-us3-os5"
+# Train the model
+# LEARNING_PARAMS="--evaluate_small_every 10000 --evaluate_every 20000 --iterations 100000 --learning_rate 0.0005"
+# python -u spectrogram.py $PARAMS $LEARNING_PARAMS
+# Evaluate the model
+python -u spectrogram.py $PARAMS --evaluate --logdir $LOGDIR --dataset mirex05 orchset adc04
+python -u spectrogram.py $PARAMS --evaluate --logdir $LOGDIR --dataset mdb
+python -u spectrogram.py $PARAMS --evaluate --logdir $LOGDIR --dataset mdb_melody_synth
+python -u spectrogram.py $PARAMS --evaluate --logdir $LOGDIR --dataset wjazzd
+
+# === HCNN context ===
+PARAMS="--frame_width 256 --batch_size 16 --annotations_per_window 10 --spectrogram_top_db 110 --spectrogram_undertone_stacking 8 --spectrogram_overtone_stacking 8 --undertone_stacking 5 --overtone_stacking 6 --filters 8 --stacks 4 --conv_ctx -3 -3 -3 -1 --dilations -8 -4 -2 -1 --cut_context 0 --context_width 3072 --unvoiced_loss_weight 1.0"
+LOGDIR="models/0929_112608-spctrgrm-bs16-fw256-cw3072-apw10-ulw1.0-std110.0-sus8-sos8-cc0-f8-s4-us5-os6-cc-3,-3,-3,-1-d-8,-4,-2,-1"
+# LEARNING_PARAMS="--evaluate_small_every 10000 --evaluate_every 20000 --iterations 100000 --learning_rate 0.0005"
+# python -u spectrogram.py $PARAMS $LEARNING_PARAMS --evaluate
+python -u spectrogram.py $PARAMS --evaluate --logdir $LOGDIR --dataset mirex05 orchset adc04
+python -u spectrogram.py $PARAMS --evaluate --logdir $LOGDIR --dataset mdb
+python -u spectrogram.py $PARAMS --evaluate --logdir $LOGDIR --dataset mdb_melody_synth
+python -u spectrogram.py $PARAMS --evaluate --logdir $LOGDIR --dataset wjazzd
+
+
+# ====== Bachelor Thesis Models ======
+
 # === CREPE MODEL ===
 PARAMS="--capacity_multiplier 8 --multiresolution_convolution 5"
 LOGDIR="models/0506_222602-crepe-bs32-lr0.001-lrd0.75-lrds50000-cm8-mc5-vsFalse/"
