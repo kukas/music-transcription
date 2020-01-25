@@ -96,8 +96,12 @@ def create_model(self, args):
                     if skip is None:
                         print(".- begin residual connection")
                     else:
-                        print("|- adding residual connection")
-                        layer += skip
+                        if args.residual_op == "add":
+                            print("|- adding residual connection")
+                            layer += skip
+                        if args.residual_op == "concat":
+                            print("|- concatenating residual connection")
+                            layer = tf.concat([skip, layer], -1)
                     skip = layer
 
             layer = tf.layers.conv2d(layer, 1, args.last_conv_kernel, (1, 1), "same", activation=None)
@@ -178,6 +182,7 @@ def parse_args(argv):
     # residual
     parser.add_argument("--residual_hop", type=int, help="Size of one block around which there is a residual connection")
     parser.add_argument("--residual_end", type=int, help="No residual connection in last N layers")
+    parser.add_argument("--residual_op", type=str, help="Residual connection operation (add for ResNet, concat for DenseNet)")
     # regularization
     parser.add_argument("--batchnorm", type=int)
     parser.add_argument("--dropout", type=float)
@@ -218,6 +223,7 @@ def parse_args(argv):
         "last_conv_kernel": [1, 1],
         "residual_hop": 1,
         "residual_end": 0,
+        "residual_op": "add",
         "batchnorm": 0,
         "dropout": 0.3,
         "specaugment_prob": 0.0,
