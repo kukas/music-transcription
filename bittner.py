@@ -11,28 +11,53 @@ import common
 import librosa
 import evaluation
 
-from model import VD, VisualOutputHook, MetricsHook, SaveBestModelHook, EvaluationHook
+from model import VD, VisualOutputHook, MetricsHook, SaveBestModelHook, EvaluationHook, CSVOutputWriterHook
 
 def create_model(self, args):
     spectrogram = self.spectrogram
 
     with tf.name_scope('model'):
+
         layer = spectrogram
-        layer = tf.layers.batch_normalization(spectrogram, training=self.is_training)
-        layer = tf.layers.conv2d(layer, 128, (5, 5), (1, 1), "same", activation=tf.nn.relu)
+
+        if args.spectrogram_undertone_stacking > 0 or args.spectrogram_overtone_stacking > 1:
+            layer = common.harmonic_stacking(self, layer, args.spectrogram_undertone_stacking, args.spectrogram_overtone_stacking)
+
         layer = tf.layers.batch_normalization(layer, training=self.is_training)
-        layer = tf.layers.conv2d(layer, 64, (5, 5), (1, 1), "same", activation=tf.nn.relu)
+
+        layer = tf.layers.conv2d(layer, 2*args.capacity_multiplier, (5, 5), (1, 1), "same", activation=tf.nn.relu)
         layer = tf.layers.batch_normalization(layer, training=self.is_training)
-        layer = tf.layers.conv2d(layer, 64, (3, 3), (1, 1), "same", activation=tf.nn.relu)
+
+        if args.undertone_stacking > 0 or args.overtone_stacking > 1:
+            layer = common.harmonic_stacking(self, layer, args.undertone_stacking, args.overtone_stacking)
+
+        layer = tf.layers.conv2d(layer, args.capacity_multiplier, (5, 5), (1, 1), "same", activation=tf.nn.relu)
         layer = tf.layers.batch_normalization(layer, training=self.is_training)
-        layer = tf.layers.conv2d(layer, 64, (3, 3), (1, 1), "same", activation=tf.nn.relu)
+
+        if args.undertone_stacking > 0 or args.overtone_stacking > 1:
+            layer = common.harmonic_stacking(self, layer, args.undertone_stacking, args.overtone_stacking)
+
+        layer = tf.layers.conv2d(layer, args.capacity_multiplier, (3, 3), (1, 1), "same", activation=tf.nn.relu)
         layer = tf.layers.batch_normalization(layer, training=self.is_training)
-        layer = tf.layers.conv2d(layer, 8, (3, 70), (1, 1), "same", activation=tf.nn.relu)
+
+        if args.undertone_stacking > 0 or args.overtone_stacking > 1:
+            layer = common.harmonic_stacking(self, layer, args.undertone_stacking, args.overtone_stacking)
+
+        layer = tf.layers.conv2d(layer, args.capacity_multiplier, (3, 3), (1, 1), "same", activation=tf.nn.relu)
         layer = tf.layers.batch_normalization(layer, training=self.is_training)
+
+        if args.undertone_stacking > 0 or args.overtone_stacking > 1:
+            layer = common.harmonic_stacking(self, layer, args.undertone_stacking, args.overtone_stacking)
+
+        layer = tf.layers.conv2d(layer, max(1, args.capacity_multiplier//8), (3, 70), (1, 1), "same", activation=tf.nn.relu)
+        layer = tf.layers.batch_normalization(layer, training=self.is_training)
+
+        if args.undertone_stacking > 0 or args.overtone_stacking > 1:
+            layer = common.harmonic_stacking(self, layer, args.undertone_stacking, args.overtone_stacking)
+
         layer = tf.layers.conv2d(layer, 1, (1, 1), (1, 1), "same", activation=tf.nn.sigmoid)
 
         note_output = tf.squeeze(layer, -1)
-        print(note_output.shape)
         self.note_logits = note_output
         self.note_probabilities = note_output
 
@@ -57,33 +82,51 @@ def create_model(self, args):
     tf.summary.scalar("model/voicing_threshold", self.voicing_threshold)
 
     self.loss = bkld(ref_probabilities, self.note_probabilities)
-
     self.est_notes = common.est_notes(self, args)
+    self.training = common.optimizer(self, args)
 
-    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-    with tf.control_dependencies(update_ops):
-        learning_rate = tf.train.exponential_decay(args.learning_rate, self.global_step, 30000, 0.9, True)
-        tf.summary.scalar("model/learning_rate", learning_rate)
-        self.training = tf.train.AdamOptimizer(learning_rate).minimize(self.loss, global_step=self.global_step)
+    # update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+    # with tf.control_dependencies(update_ops):
+    #     learning_rate = tf.train.exponential_decay(args.learning_rate, self.global_step, 30000, 0.9, True)
+    #     tf.summary.scalar("model/learning_rate", learning_rate)
+    #     self.training = tf.train.AdamOptimizer(learning_rate).minimize(self.loss, global_step=self.global_step)
 
 
 # cqt
 HOP_LENGTH = 512
 
 def parse_args(argv):
-    parser = common.common_arguments({
+    parser = common.common_arguments_parser()
+    parser.add_argument("--capacity_multiplier", type=int, help="Capacity multiplier")
+    parser.add_argument("--spectrogram", type=str, help="Spectrogram method")
+    parser.add_argument("--spectrogram_top_db", type=float, help="Spectrogram top_db")
+    parser.add_argument("--spectrogram_filter_scale", type=float, help="Spectrogram filter_scale")
+    parser.add_argument("--spectrogram_undertone_stacking", type=int, help="spectrogram undertone stacking")
+    parser.add_argument("--spectrogram_overtone_stacking", type=int, help="spectrogram overtone stacking")
+    parser.add_argument("--undertone_stacking", type=int, help="Undertone stacking in the model")
+    parser.add_argument("--overtone_stacking", type=int, help="Overtone stacking in the model")
+    args = parser.parse_args(argv)
+    defaults = {
         "samplerate": 44100, "context_width": 0, "annotations_per_window": 50, "hop_size": 1,
         "frame_width": HOP_LENGTH,
         "note_range": 72, "min_note": 24,
         "evaluate_every": 5000,
         "evaluate_small_every": 1000,
-    })
-    # Model specific arguments
-    parser.add_argument("--spectrogram", default="hcqt", type=str, help="Postprocessing layer")
+        "spectrogram": "cqt",
+        "learning_rate": 0.001,
+        "learning_rate_decay": 0.85,
+        "learning_rate_decay_steps": 5000,
+        "undertone_stacking": 0,
+        "overtone_stacking": 1,
+        "spectrogram_undertone_stacking": 1,
+        "spectrogram_overtone_stacking": 5,
+        "spectrogram_top_db": 80,
+        "spectrogram_filter_scale": 1.0,
+        "capacity_multiplier": 64,
 
-    args = parser.parse_args(argv)
-
-    common.name(args, "bittner")
+    }
+    specified_args = common.argument_defaults(args, defaults)
+    common.name(args, specified_args, "bittner")
 
     return args
 
@@ -92,10 +135,14 @@ def construct(args):
 
     with network.session.graph.as_default():
         spectrogram_function, spectrogram_thumb, spectrogram_info = common.spectrograms(args)
+        # save spectrogram_thumb to hyperparams
+        args.spectrogram_thumb = spectrogram_thumb
 
+        hop_samples = args.frame_width*args.samplerate/44100
+        print("hop_samples", hop_samples)
         def preload_fn(aa):
-            aa.annotation = datasets.Annotation.from_time_series(*aa.annotation, 512)
-            aa.audio.load_resampled_audio(args.samplerate).load_spectrogram(spectrogram_function, spectrogram_thumb, HOP_LENGTH)
+            aa.annotation = datasets.Annotation.from_time_series(*aa.annotation, hop_samples=hop_samples)
+            aa.audio.load_resampled_audio(args.samplerate).load_spectrogram(spectrogram_function, spectrogram_thumb, spectrogram_info[2])
 
         def dataset_transform(tf_dataset, dataset):
             return tf_dataset.map(dataset.prepare_example, num_parallel_calls=args.threads).batch(args.batch_size_evaluation).prefetch(10)
@@ -103,7 +150,7 @@ def construct(args):
         def dataset_transform_train(tf_dataset, dataset):
             return tf_dataset.shuffle(10**5).map(dataset.prepare_example, num_parallel_calls=args.threads).batch(args.batch_size).prefetch(10)
 
-        valid_hooks = [MetricsHook(write_estimations=True), VisualOutputHook(False, False, True, True), SaveBestModelHook(args.logdir), AdjustVoicingHook()]
+        valid_hooks = [MetricsHook(), VisualOutputHook(False, False, True, True), SaveBestModelHook(args.logdir), CSVOutputWriterHook(), AdjustVoicingHook()]
         train_dataset, test_datasets, validation_datasets = common.prepare_datasets(args.datasets, args, preload_fn, dataset_transform, dataset_transform_train, valid_hooks=valid_hooks)
 
         network.construct(args, create_model, train_dataset.dataset.output_types, train_dataset.dataset.output_shapes, spectrogram_info=spectrogram_info)

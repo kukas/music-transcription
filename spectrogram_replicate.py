@@ -92,23 +92,28 @@ def create_model(self, args):
 
 
 def parse_args(argv):
+    parser = common.common_arguments_parser()
+    parser.add_argument("--spectrogram", type=str, help="Postprocessing layer")
+    parser.add_argument("--capacity_multiplier", default=8, type=int, help="Capacity")
+    parser.add_argument("--voicing", action='store_true', help="Add voicing model.")
+
+    args = parser.parse_args(argv)
+
     hop_length = 512
-    parser = common.common_arguments({
+    defaults = {
         "samplerate": 44100, "context_width": 14*hop_length, "annotations_per_window": 20, "hop_size": 1, "frame_width": hop_length,
         "note_range": 72, "min_note": 24,
         "batch_size": 8,
         "evaluate_every": 5000,
         "evaluate_small_every": 1000,
         "annotation_smoothing": 0.177,
-    })
-    # Model specific arguments
-    parser.add_argument("--spectrogram", default="hcqt", type=str, help="Postprocessing layer")
-    parser.add_argument("--capacity_multiplier", default=8, type=int, help="Capacity")
-    parser.add_argument("--voicing", action='store_true', help="Add voicing model.")
-
-    args = parser.parse_args(argv)
-
-    common.name(args, "cqt_voicing_residual_batchnorm")
+        "spectrogram": "hcqt",
+        "capacity_multiplier": 8,
+        "voicing": False
+    }
+    specified_args = common.argument_defaults(args, defaults)
+    common.name(args, specified_args, "bittner")
+    # common.name(args, "cqt_voicing_residual_batchnorm")
 
     return args
 

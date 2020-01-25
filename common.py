@@ -15,10 +15,11 @@ import os
 def name(args, specified_args=[], prefix=""):
     if args.logdir is None:
         filtered = ["logdir", "checkpoint", "saver_max_to_keep", "threads", "full_trace", "debug_memory_leaks", "cpu",
-                    "rewind", "save_salience", "predict", "evaluate", "evaluate_every", "evaluate_small_every", "epochs", "iterations", "batch_size_evaluation", "stop_if_too_slow"]
+                    "rewind", "save_salience", "predict", "output_file", "output_format", "evaluate", "evaluate_every", "evaluate_small_every", "epochs", "iterations", "batch_size_evaluation", "stop_if_too_slow"]
         name = "{}-{}".format(datetime.datetime.now().strftime("%m%d_%H%M%S"), prefix)
+        print(specified_args)
         for k, v in vars(args).items():
-            if k not in filtered and (specified_args != [] and k in specified_args) or specified_args == []:
+            if k not in filtered and ((specified_args != [] and k in specified_args) or specified_args == []):
                 short_k = "".join([w[0] for w in k.split("_")])
                 if type(v) is list or type(v) is tuple:
                     v = map(str, v)
