@@ -372,7 +372,7 @@ class NetworkMelody(Network):
             voiced_ref = tf.greater(self.annotations[:, :, 0], 0)
             voiced_est = tf.greater(self.est_notes, 0)
 
-            voiced_frames = tf.logical_and(voiced_ref, voiced_est)
+            voiced_frames = tf.logical_and(voiced_ref, tf.not_equal(self.est_notes, 0))
             n_ref_sum = tf.cast(tf.count_nonzero(voiced_ref), tf.float64)
 
             correct = tf.less(est_diff, 0.5)
@@ -421,11 +421,14 @@ class NetworkMelody(Network):
         additional_fetches = []
 
         for hook in vd.hooks:
-            hook_fetches = hook.before_run(self, vd)
+            hook_fetches = hook.before_predict(self, vd)
             if hook_fetches is not None:
                 additional_fetches += hook_fetches
 
         estimations, additional = self._predict_handle(handle, additional_fetches)
+
+        for hook in vd.hooks:
+            hook.after_predict(self, vd, estimations, additional)
 
         for uid, (est_time, est_freq) in estimations.items():
             aa = vd.dataset.get_annotated_audio_by_uid(uid)

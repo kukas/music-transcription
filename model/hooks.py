@@ -24,22 +24,27 @@ def add_fig(fig, summary_writer, tag, global_step=0):
     plt.close('all')
 
 class EvaluationHook:
-    def before_run(self, ctx, vd):
+    def before_predict(self, ctx, vd):
+        pass
+
+    def after_predict(self, ctx, vd, estimations, additional):
         pass
 
     def every_aa(self, ctx, vd, aa, est_time, est_freq):
         pass
 
+
     def after_run(self, ctx, vd, additional):
         pass
 
     def _title(self, ctx):
-        return "OA: {:.3f}, RPA: {:.3f}, RCA: {:.3f}, VR: {:.3f}, VFA: {:.3f}, Loss {:.4f}".format(
+        return "OA: {:.3f}, RPA: {:.3f}, RCA: {:.3f}, VR: {:.3f}, VFA: {:.3f}, VA: {:.3f}, Loss {:.4f}".format(
             ctx.metrics['Overall Accuracy'],
             ctx.metrics['Raw Pitch Accuracy'],
             ctx.metrics['Raw Chroma Accuracy'],
             ctx.metrics['Voicing Recall'],
             ctx.metrics['Voicing False Alarm'],
+            ctx.metrics['Voicing Accuracy'],
             ctx.metrics['Loss']
         )
 
@@ -61,7 +66,7 @@ class VisualOutputHook(EvaluationHook):
         self.draw_confusion = draw_confusion
         self.draw_hists = draw_hists
 
-    def before_run(self, ctx, vd):
+    def before_predict(self, ctx, vd):
         self.reference = []
         self.estimation = []
         additional = []
@@ -102,7 +107,7 @@ class CSVOutputWriterHook(EvaluationHook):
         self.output_file = output_file
         self.output_format = output_format
 
-    def before_run(self, ctx, vd):
+    def before_predict(self, ctx, vd):
         self.write_estimations_timer = 0
         return []
 
@@ -134,7 +139,7 @@ class MetricsHook(EvaluationHook):
         self.print_detailed = print_detailed
         self.write_summaries = write_summaries
 
-    def before_run(self, ctx, vd):
+    def before_predict(self, ctx, vd):
         self.all_metrics = []
         return [ctx.loss]
 
@@ -144,7 +149,7 @@ class MetricsHook(EvaluationHook):
 
         assert len(ref_time) == len(est_time)
         assert len(ref_freq) == len(est_freq)
-        assert len(ref_freq) == len(est_freq)
+        assert len(ref_freq) == len(ref_time)
 
         metrics = mir_eval.melody.evaluate(ref_time, ref_freq, est_time, est_freq)
 
@@ -191,7 +196,7 @@ class MetricsHook(EvaluationHook):
         print("{}: {}".format(vd.name, self._title(ctx)))
 
 class SaveSaliencesHook(EvaluationHook):
-    def before_run(self, ctx, vd):
+    def before_predict(self, ctx, vd):
         return [ctx.note_probabilities]
 
     def after_run(self, ctx, vd, additional):
@@ -242,12 +247,10 @@ class SaveBestModelHook(EvaluationHook):
 
 
 class AdjustVoicingHook(EvaluationHook):
-    def before_run(self, ctx, vd):
+    def before_predict(self, ctx, vd):
         return [ctx.est_notes_confidence]
 
-    def after_run(self, ctx, vd, additional):
-        print("Adjusting voicing threshold")
-
+    def after_predict(self, ctx, vd, estimations, additional):
         thresholds = np.arange(0.0, 1.0, 0.01)
         results = []
         for threshold in thresholds:
@@ -261,5 +264,11 @@ class AdjustVoicingHook(EvaluationHook):
             results.append(np.mean(threshold_results))
 
         best_threshold = thresholds[np.argmax(results)]
-        print("New voicing threshold {:.2f} {:.3f}".format(best_threshold, np.max(results)))
+        print("Voicing threshold: {:.2f}, best voicing accuracy: {:.3f}".format(best_threshold, np.max(results)))
         ctx.voicing_threshold.load(best_threshold, ctx.session)
+
+        for uid, (est_time, est_freq) in estimations.items():
+            est_notes_confidence = additional[ctx.est_notes_confidence][uid]
+            est_voicing = est_notes_confidence > best_threshold
+            new_est_freq = np.abs(est_freq) * (est_voicing*2-1)
+            estimations[uid] = (est_time, new_est_freq)
