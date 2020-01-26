@@ -11,66 +11,36 @@ import librosa
 
 from tensorflow.python.ops import array_ops
 
-# https://github.com/ailias/Focal-Loss-implement-on-Tensorflow/blob/master/focal_loss.py
-def focal_loss(prediction_tensor, target_tensor, weights=None, alpha=0.25, gamma=2):
-    r"""Compute focal loss for predictions.
-
-        Multi-labels Focal loss formula:
-            FL = -alpha * (z-p)^gamma * log(p) -(1-alpha) * p^gamma * log(1-p)
-                 ,which alpha = 0.25, gamma = 2, p = sigmoid(x), z = target_tensor.
-
-    Args:
-     prediction_tensor: A float tensor of shape [batch_size, num_anchors,
-        num_classes] representing the predicted logits for each class
-     target_tensor: A float tensor of shape [batch_size, num_anchors,
-        num_classes] representing one-hot encoded classification targets
-     weights: A float tensor of shape [batch_size, num_anchors]
-     alpha: A scalar tensor for focal loss alpha hyper-parameter
-     gamma: A scalar tensor for focal loss gamma hyper-parameter
-    Returns:
-        loss: A (scalar) tensor representing the value of the loss function
-    """
-    sigmoid_p = tf.nn.sigmoid(prediction_tensor)
-    zeros = array_ops.zeros_like(sigmoid_p, dtype=sigmoid_p.dtype)
-
-    # For poitive prediction, only need consider front part loss, back part is 0;
-    # target_tensor > zeros <=> z=1, so poitive coefficient = z - p.
-    pos_p_sub = array_ops.where(target_tensor > zeros, target_tensor - sigmoid_p, zeros)
-
-    # For negative prediction, only need consider back part loss, front part is 0;
-    # target_tensor > zeros <=> z=1, so negative coefficient = 0.
-    neg_p_sub = array_ops.where(target_tensor > zeros, zeros, sigmoid_p)
-    per_entry_cross_ent = - alpha * (pos_p_sub ** gamma) * tf.log(tf.clip_by_value(sigmoid_p, 1e-8, 1.0)) \
-                          - (1 - alpha) * (neg_p_sub ** gamma) * tf.log(tf.clip_by_value(1.0 - sigmoid_p, 1e-8, 1.0))
-    return tf.reduce_sum(per_entry_cross_ent)
-
-
-
 def create_model(self, args):
-    spectrogram_min_note = librosa.core.hz_to_midi(self.spectrogram_fmin)
-    if args.overtone_stacking > 0 or args.undertone_stacking > 0:
+    if args.spectrogram_undertone_stacking > 0 or args.spectrogram_overtone_stacking > 1:
+        # for spectrograms where the min. frequency doesn't correspond to output min. note
+        # spectrogram_min_note = librosa.core.hz_to_midi(self.spectrogram_fmin)
         # offset = args.min_note - spectrogram_min_note
-        spectrogram = common.harmonic_stacking(self, self.spectrogram, args.undertone_stacking, args.overtone_stacking)
+        spectrogram = common.harmonic_stacking(self, self.spectrogram, args.spectrogram_undertone_stacking, args.spectrogram_overtone_stacking)
 
     else:
         spectrogram = self.spectrogram[:, :, :self.bin_count, :]
 
-    context_size = int(self.context_width/self.spectrogram_hop_size)
+
+    args_context_size = int(self.context_width/self.spectrogram_hop_size)
 
     if args.activation is not None:
         activation = getattr(tf.nn, args.activation)
 
     with tf.name_scope('model_pitch'):
         layer = spectrogram
+
         if args.architecture.startswith("deep_simple"):
             residual = None
             for i in range(args.stacks):
-                layer = tf.layers.conv2d(layer, 8*args.capacity_multiplier, (args.conv_ctx, args.conv_range), (1, 1), "same", activation=None)
+                layer = tf.layers.conv2d(layer, args.filters, (args.conv_ctx[0], args.conv_range), (1, 1), "same", activation=None)
 
                 layer = activation(layer)
 
-                if args.harmonic_stacking:
-                    layer = common.harmonic_stacking(self, layer, args.harmonic_stacking, args.harmonic_stacking+1)
+                if args.undertone_stacking > 0 or args.overtone_stacking > 1:
+                    print("harmonic stacking {} --> ".format(layer.shape), end="")
+                    layer = common.harmonic_stacking(self, layer, args.undertone_stacking, args.overtone_stacking)
+                    print(layer.shape)
 
                 layer = common.regularization(layer, args, training=self.is_training)
 
@@ -81,128 +51,13 @@ def create_model(self, args):
 
             layer = residual
 
-            layer = tf.layers.conv2d(layer, 1, (args.last_conv_ctx+1, 1), (1, 1), "same", activation=None)
-            layer_cut = layer[:, context_size:-context_size, :, :]
+            layer = tf.layers.conv2d(layer, 1, args.last_conv_kernel, (1, 1), "same", activation=None)
+            layer_cut = layer[:, args_context_size:-args_context_size, :, :]
             self.note_logits = tf.squeeze(layer_cut, -1)
-
-        if args.architecture.startswith("deep_smooth"):
-            residual = None
-            ctx_end = 1
-            dilations_start = 5
-            for i in range(args.stacks):
-                conv_ctx = args.conv_ctx if i < ctx_end or i >= dilations_start else 1
-                dil_rate = (1, 1) if i < dilations_start else (2**(i-dilations_start), 1)
-                layer = tf.layers.conv2d(layer, 8*args.capacity_multiplier, (conv_ctx, args.conv_range), (1, 1), "same", activation=None, dilation_rate=dil_rate)
-                print(i, "kernel", (conv_ctx, args.conv_range), "dilation", dil_rate)
-
-                layer = activation(layer)
-
-                if args.harmonic_stacking:
-                    layer = common.harmonic_stacking(self, layer, args.harmonic_stacking, args.harmonic_stacking+1)
-
-                layer = common.regularization(layer, args, training=self.is_training)
-
-                if residual is None:
-                    residual = layer
-                else:
-                    residual += layer
-
-            layer = residual
-
-            layer = tf.layers.conv2d(layer, 1, (args.last_conv_ctx, 1), (1, 1), "same", activation=None)
-            layer_cut = layer[:, context_size:-context_size, :, :]
-            self.note_logits = tf.squeeze(layer_cut, -1)
-        
-        if args.architecture.startswith("deep_lstm"):
-            residual = None
-            ctx_end = 1
-            for i in range(args.stacks):
-                conv_ctx = args.conv_ctx if i < ctx_end else 1
-                layer = tf.layers.conv2d(layer, 8*args.capacity_multiplier, (conv_ctx, args.conv_range), (1, 1), "same", activation=None)
-                layer = activation(layer)
-                if args.harmonic_stacking:
-                    layer = common.harmonic_stacking(self, layer, args.harmonic_stacking, args.harmonic_stacking+1)
-
-                layer = common.regularization(layer, args, training=self.is_training)
-
-                if residual is None:
-                    residual = layer
-                else:
-                    residual += layer
-
-            layer = residual
-            layer = tf.layers.conv2d(layer, 1, (args.last_conv_ctx, 1), (1, 1), "same", activation=None)
-            layer_cut = layer[:, context_size:-context_size, :, :]
-
-            # https://www.tensorflow.org/api_docs/python/tf/contrib/cudnn_rnn/CudnnLSTM
-            # cell = tf.contrib.cudnn_rnn.CudnnLSTM(1, 128)
-            # tf.nn.static_rnn(
-            #     cell,
-            #     inputs,
-            #     initial_state=None,
-            #     dtype=None,
-            #     sequence_length=None,
-            #     scope=None
-            # )
-
-            # lstm_sizes = [128, 128]
-            # lstms = [tf.contrib.rnn.BasicLSTMCell(size) for size in lstm_sizes]
-            # # Add dropout to the cell
-            # keep_prob_ = 0.9
-            # drops = [tf.contrib.rnn.DropoutWrapper(lstm, output_keep_prob=keep_prob_) for lstm in lstms]
-            # # Stack up multiple LSTM layers, for deep learning
-            # cell = tf.contrib.rnn.MultiRNNCell(drops)
-            # self.note_logits = tf.squeeze(layer_cut, -1)
-
-            print("!!!!!!!")
-            print(layer_cut.shape)
-            # layer_cut = tf.squeeze(layer_cut, 3)
-            layer_cut = spectrogram[:, context_size:-context_size, :, 0]
-            print(layer_cut.shape)
-            cell = tf.nn.rnn_cell.BasicRNNCell(16)
-            # seq_length = tf.fill(tf.shape(layer_cut)[:1], self.annotations_per_window)
-            # print(seq_length)
-            outputs, _ = tf.nn.dynamic_rnn(cell, layer_cut, dtype=tf.float32)
-            # outputs = tf.Print(outputs, [outputs, layer_cut])
-            print(outputs.shape)
-            # outputs = layer_cut
-            
-            outputs = tf.layers.dense(outputs, self.bin_count, activation=None)
-
-            self.note_logits = outputs
-
-        
+            print("note_logits shape", self.note_logits.shape)
 
     if args.voicing:
-        with tf.name_scope('model_voicing'):
-            voicing_layer = tf.concat([tf.stop_gradient(layer), spectrogram], axis=-1)
-
-            note = int(int(voicing_layer.shape[2])/6/12)
-
-            voicing_layer = tf.layers.conv2d(voicing_layer, 8*args.voicing_capacity_multiplier, (args.voicing_conv_ctx*2+1, note), (1, 1), "same", activation=activation)
-            voicing_layer = common.regularization(voicing_layer, args, training=self.is_training)
-
-            voicing_layer = tf.layers.conv2d(voicing_layer, 8*args.voicing_capacity_multiplier, (args.voicing_conv_ctx*2+1, note), (1, note), "same", activation=activation)
-            voicing_layer = common.regularization(voicing_layer, args, training=self.is_training)
-
-            octave = int(int(voicing_layer.shape[2])/6)
-            voicing_layer = tf.layers.conv2d(voicing_layer, 8*args.voicing_capacity_multiplier, (args.voicing_conv_ctx*2+1, octave), (1, 1), "same", activation=activation)
-            voicing_layer = common.regularization(voicing_layer, args, training=self.is_training)
-
-            voicing_layer = tf.layers.conv2d(voicing_layer, 8*args.voicing_capacity_multiplier, (args.voicing_conv_ctx*2+1, octave), (1, octave), "same", activation=activation)
-            voicing_layer = common.regularization(voicing_layer, args, training=self.is_training)
-
-            print("adding last conv valid layer")
-            print("model output", voicing_layer.shape)
-            if args.voicing_last_conv_ctx:
-                voicing_layer = tf.pad(voicing_layer, ((0, 0), (args.voicing_last_conv_ctx, args.voicing_last_conv_ctx), (0, 0), (0, 0)))
-                print("padded", voicing_layer.shape)
-            voicing_layer = tf.layers.conv2d(voicing_layer, 1, (args.voicing_last_conv_ctx*2+1, voicing_layer.shape[2]), (1, 1), "valid", activation=None, use_bias=True)
-            print("last conv output", voicing_layer.shape)
-            voicing_layer = voicing_layer[:, context_size:-context_size, :, :]
-            print("cut context", voicing_layer.shape)
-            self.voicing_logits = tf.squeeze(voicing_layer)
-            print("squeeze", voicing_layer.shape)
+        raise NotImplementedError
     else:
         self.voicing_threshold = tf.Variable(0.15, trainable=False)
         tf.summary.scalar("model/voicing_threshold", self.voicing_threshold)
@@ -223,49 +78,21 @@ def create_model(self, args):
                 note_ref = tf.tile(tf.reshape(annotations, [-1, self.annotations_per_window, annotations_per_frame, 1]), [1, 1, 1, self.bin_count])
                 
                 ref_probabilities = tf.exp(-(note_ref-note_bins)**2/(2*args.annotation_smoothing**2))
-                ref_probabilities = tf.concat([ref_probabilities[:, :, :1, :], ref_probabilities[:, :, 1:, :]*args.miss_weight], axis=2)
+                # ref_probabilities = tf.concat([ref_probabilities[:, :, :1, :], ref_probabilities[:, :, 1:, :]*args.miss_weight], axis=2)
                 ref_probabilities = tf.reduce_sum(ref_probabilities, axis=2)
 
                 # self.note_probabilities = ref_probabilities
                 # print(ref_probabilities.eval(), ref_probabilities.shape)
 
-                voicing_weights = tf.tile(tf.expand_dims(voicing_ref, -1), [1, 1, self.bin_count])
+                unvoiced_weights = (1-voicing_ref)*args.unvoiced_loss_weight
+                voicing_weights = tf.tile(tf.expand_dims(voicing_ref+unvoiced_weights, -1), [1, 1, self.bin_count])
 
-                if args.architecture.startswith("deep_simple_focal"):
-                    note_loss = focal_loss(self.note_logits, ref_probabilities, weights=voicing_weights)
-                else:
-                    note_loss = tf.losses.sigmoid_cross_entropy(ref_probabilities, self.note_logits, weights=voicing_weights)
+                note_loss = tf.losses.sigmoid_cross_entropy(ref_probabilities, self.note_logits, weights=voicing_weights)
 
 
             
             loss_names.append("note_loss")
             losses.append(note_loss)
-
-        # Melody input, not compatible with multif0 input
-        # annotations = self.annotations[:, :, 0] - args.min_note
-        # voicing_ref = tf.cast(tf.greater(annotations, 0), tf.float32)
-        # loss_names = []
-        # losses = []
-        # if self.note_logits is not None:
-        #     if args.annotation_smoothing > 0:
-        #         self.note_probabilities = tf.nn.sigmoid(self.note_logits)
-        #         note_ref = tf.tile(tf.reshape(annotations, [-1, self.annotations_per_window, 1]), [1, 1, self.bin_count])
-        #         ref_probabilities = tf.exp(-(note_ref-self.note_bins)**2/(2*args.annotation_smoothing**2))
-
-        #         voicing_weights = tf.tile(tf.expand_dims(voicing_ref, -1), [1, 1, self.bin_count])
-
-        #         # miss weights
-        #         peak_ref = tf.cast(tf.abs(tf.tile(tf.reshape(annotations, [-1, self.annotations_per_window, 1]), [1, 1, self.bin_count]) - self.note_bins) < 0.5, tf.float32)
-        #         miss_weights = tf.ones_like(voicing_weights)*args.miss_weight + peak_ref*(1-args.miss_weight)
-
-        #         note_loss = tf.losses.sigmoid_cross_entropy(ref_probabilities, self.note_logits, weights=voicing_weights*miss_weights)
-        #     else:
-        #         self.note_probabilities = tf.nn.softmax(self.note_logits)
-        #         ref_bins = tf.cast(tf.round(annotations * self.bins_per_semitone), tf.int32)
-        #         note_loss = tf.losses.sparse_softmax_cross_entropy(ref_bins, self.note_logits, weights=voicing_ref)
-
-        #     loss_names.append("note_loss")
-        #     losses.append(note_loss)
 
         if args.l2_loss_weight > 0:
             reg_variables = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
@@ -289,48 +116,90 @@ def create_model(self, args):
     self.training = common.optimizer(self, args)
 
 
+
 def parse_args(argv):
-    hop_length = 512
-    parser = common.common_arguments({
-        "samplerate": 44100, "context_width": 1*hop_length, "annotations_per_window": 1, "hop_size": 1, "frame_width": hop_length,
-        "note_range": 72, "min_note": 24,
-        "evaluate_every": 5000,
-        "evaluate_small_every": 1000,
-        "batch_size": 1,
-        "annotation_smoothing": 0.18,
-        "datasets": ["mdb_mel4"]
-    })
+    parser = common.common_arguments_parser()
     # Model specific arguments
-    parser.add_argument("--spectrogram", default="cqt_fs", type=str, help="Postprocessing layer")
-    parser.add_argument("--architecture", default="bittnerlike", type=str, help="Postprocessing layer")
-    parser.add_argument("--capacity_multiplier", default=8, type=int, help="Capacity")
-    
-    parser.add_argument("--stacks", default=10, type=int, help="Stacks")
-    parser.add_argument("--conv_range", default=3, type=int, help="Stack kernel width")
-    parser.add_argument("--harmonic_stacking", default=1, type=int, help="harmonic stacking undertones and overtones")
-
-
-    parser.add_argument("--voicing_capacity_multiplier", default=8, type=int, help="Capacity")
-    parser.add_argument("--undertone_stacking", default=5, type=int, help="spectrogram stacking")
-    parser.add_argument("--overtone_stacking", default=10, type=int, help="spectrogram stacking")
-
-    parser.add_argument("--voicing", action='store_true', help="Add voicing model.")
-
-    parser.add_argument("--conv_ctx", default=0, type=int)
-    parser.add_argument("--last_conv_ctx", default=0, type=int)
-    parser.add_argument("--voicing_conv_ctx", default=0, type=int)
-    parser.add_argument("--voicing_last_conv_ctx", default=0, type=int)
-    parser.add_argument("--batchnorm", default=0, type=int)
-    parser.add_argument("--dropout", default=0.3, type=float)
-    parser.add_argument("--activation", default="relu", type=str)
-
+    # input
+    parser.add_argument("--spectrogram", type=str, help="Spectrogram method")
+    parser.add_argument("--spectrogram_top_db", type=float, help="Spectrogram top_db")
+    parser.add_argument("--spectrogram_filter_scale", type=float, help="Spectrogram filter_scale")
+    parser.add_argument("--spectrogram_undertone_stacking", type=int, help="spectrogram undertone stacking")
+    parser.add_argument("--spectrogram_overtone_stacking", type=int, help="spectrogram overtone stacking")
+    parser.add_argument("--cut_context", type=int, help="Cut unnecessary context, doesn't work with dilations!")
+    # model
+    parser.add_argument("--architecture", type=str, help="Model architecture")
+    parser.add_argument("--filters", type=int, help="Filters in convolutions")
+    parser.add_argument("--stacks", type=int, help="Stacks")
+    parser.add_argument("--conv_range", type=int, help="Stack kernel size in frequency axis")
+    parser.add_argument("--undertone_stacking", type=int, help="Undertone stacking in the model")
+    parser.add_argument("--overtone_stacking", type=int, help="Overtone stacking in the model")
+    parser.add_argument("--activation", type=str, help="Activation function for the convolution stack")
+    # context
+    parser.add_argument("--conv_ctx", nargs="+", type=int, help="Stack kernel sizes in time axis")
+    parser.add_argument("--dilations", nargs="+", type=int, help="Dilation rate for the convolutions")
+    parser.add_argument("--last_conv_kernel", nargs=2, type=int)
+    # residual
+    parser.add_argument("--residual_hop", type=int, help="Size of one block around which there is a residual connection")
+    parser.add_argument("--residual_end", type=int, help="No residual connection in last N layers")
+    parser.add_argument("--residual_op", type=str, help="Residual connection operation (add for ResNet, concat for DenseNet)")
+    # regularization
+    parser.add_argument("--batchnorm", type=int)
+    parser.add_argument("--dropout", type=float)
+    parser.add_argument("--specaugment_prob", type=float)
+    parser.add_argument("--specaugment_freq_mask_num", type=int)
+    parser.add_argument("--specaugment_freq_mask_max", type=int)
+    parser.add_argument("--specaugment_time_mask_num", type=int)
+    parser.add_argument("--specaugment_time_mask_max", type=int)
+    # voicing module
+    parser.add_argument("--voicing", type=int)
+    parser.add_argument("--voicing_input", type=str)
 
     args = parser.parse_args(argv)
 
-    common.name(args, "cqtmf0")
+    hop_length = 256
+    defaults = {
+        # Change some of the common defaults
+        "samplerate": 44100, "context_width": 10*hop_length, "annotations_per_window": 5, "hop_size": 1, "frame_width": hop_length,
+        "note_range": 72, "min_note": 24, "evaluate_every": 5000, "evaluate_small_every": 1000, "annotation_smoothing": 0.18, "batch_size": 8,
+        "unvoiced_loss_weight": 1.0,
+        "datasets": ["mdb_mel4"],
+        # Model specific defaults
+        "learning_rate_decay_steps": 10000,
+        "learning_rate_decay": 0.8,
+        "spectrogram": "cqt",
+        "spectrogram_top_db": 80,
+        "spectrogram_filter_scale": 1.0,
+        "spectrogram_undertone_stacking": 1,
+        "spectrogram_overtone_stacking": 5,
+        "cut_context": 1,
+        "architecture": "deep_simple",
+        "filters": 16,
+        "stacks": 10,
+        "conv_range": 3,
+        "undertone_stacking": 0,
+        "overtone_stacking": 1,
+        "activation": "relu",
+        "conv_ctx": [1],
+        "dilations": [1],
+        "last_conv_kernel": [1, 1],
+        "residual_hop": 1,
+        "residual_end": 0,
+        "residual_op": "add",
+        "batchnorm": 0,
+        "dropout": 0.3,
+        "specaugment_prob": 0.0,
+        "specaugment_freq_mask_num": 2,
+        "specaugment_freq_mask_max": 27,
+        "specaugment_time_mask_num": 1,
+        "specaugment_time_mask_max": 5,
+        "voicing": 0,
+        "voicing_input": "spectrogram_salience",
+    }
+    specified_args = common.argument_defaults(args, defaults)
+    common.name(args, specified_args, "mf0")
 
     return args
-
 
 def construct(args):
     network = NetworkMelody(args)
