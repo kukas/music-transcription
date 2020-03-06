@@ -30,7 +30,7 @@ class EvaluationHook:
     def after_predict(self, ctx, vd, estimations, additional):
         pass
 
-    def every_aa(self, ctx, vd, aa, est_time, est_freq):
+    def every_aa(self, ctx, vd, aa, est_time, est_notes, est_freq):
         pass
 
 
@@ -67,22 +67,22 @@ class VisualOutputHook(EvaluationHook):
         self.draw_hists = draw_hists
 
     def before_predict(self, ctx, vd):
-        self.reference = []
-        self.estimation = []
+        self.ref_notes = []
+        self.est_notes = []
         additional = []
         if self.draw_probs:
             additional.append(ctx.note_probabilities)
         return additional
 
-    def every_aa(self, ctx, vd, aa, est_time, est_freq):
-        self.reference += aa.annotation.notes_mf0
-        self.estimation.append(datasets.common.hz_to_midi_safe(est_freq))
+    def every_aa(self, ctx, vd, aa, est_time, est_notes, est_freq):
+        self.ref_notes += aa.annotation.notes_mf0
+        self.est_notes += datasets.common.melody_to_multif0(est_notes)
 
     def after_run(self, ctx, vd, additional):
         prefix = "valid_{}/".format(vd.name)
         title = self._title(ctx)
-        reference = self.reference
-        estimation = datasets.common.melody_to_multif0(np.concatenate(self.estimation))
+        reference = self.ref_notes
+        estimation = self.est_notes
         global_step = tf.train.global_step(ctx.session, ctx.global_step)
 
         if self.draw_notes:
@@ -111,7 +111,7 @@ class CSVOutputWriterHook(EvaluationHook):
         self.write_estimations_timer = 0
         return []
 
-    def every_aa(self, ctx, vd, aa, est_time, est_freq):
+    def every_aa(self, ctx, vd, aa, est_time, est_notes, est_freq):
         timer = time.time()
         if self.output_file is None:
             est_dir = self.output_path
@@ -143,7 +143,7 @@ class MetricsHook(EvaluationHook):
         self.all_metrics = []
         return [ctx.loss]
 
-    def every_aa(self, ctx, vd, aa, est_time, est_freq):
+    def every_aa(self, ctx, vd, aa, est_time, est_notes, est_freq):
         ref_time = aa.annotation.times
         ref_freq = aa.annotation.freqs[:, 0]
 
@@ -211,9 +211,7 @@ class SaveSaliencesHook(EvaluationHook):
         print("saliences written in {:.2f}s".format(time.time()-timer))
 
 class MetricsHook_mf0(EvaluationHook_mf0, MetricsHook):
-    def every_aa(self, ctx, vd, aa, est_time, est_freq):
-        est_freqs = datasets.common.melody_to_multif0(est_freq)
-
+    def every_aa(self, ctx, vd, aa, est_time, est_notes, est_freqs):
         ref_time = aa.annotation.times
         ref_freqs = aa.annotation.freqs_mf0
 
@@ -223,14 +221,17 @@ class MetricsHook_mf0(EvaluationHook_mf0, MetricsHook):
 
 
 class VisualOutputHook_mf0(EvaluationHook_mf0, VisualOutputHook):
-    pass
+    def every_aa(self, ctx, vd, aa, est_time, est_notes, est_freq):
+        self.ref_notes += aa.annotation.notes_mf0
+        self.est_notes += est_notes
+
 
 
 class SaveBestModelHook(EvaluationHook):
-    def __init__(self, logdir):
+    def __init__(self, logdir, watch_metric = "Raw Pitch Accuracy"):
         self.best_value = -1
         self.logdir = logdir
-        self.watch_metric = "Raw Pitch Accuracy"
+        self.watch_metric = watch_metric
 
     def after_run(self, ctx, vd, additional):
         self.model_name = "model-best-{}".format(vd.name)
@@ -267,8 +268,8 @@ class AdjustVoicingHook(EvaluationHook):
         print("Voicing threshold: {:.2f}, best voicing accuracy: {:.3f}".format(best_threshold, np.max(results)))
         ctx.voicing_threshold.load(best_threshold, ctx.session)
 
-        for uid, (est_time, est_freq) in estimations.items():
+        for uid, (est_time, est_note, est_freq) in estimations.items():
             est_notes_confidence = additional[ctx.est_notes_confidence][uid]
             est_voicing = est_notes_confidence > best_threshold
             new_est_freq = np.abs(est_freq) * (est_voicing*2-1)
-            estimations[uid] = (est_time, new_est_freq)
+            estimations[uid] = (est_time, est_note, new_est_freq)

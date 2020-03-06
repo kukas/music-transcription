@@ -304,7 +304,12 @@ def spectrograms(args):
 
     return spectrogram_function, spectrogram_thumb, spectrogram_info
 
-def harmonic_stacking(self, input, undertones, overtones, offset=0):
+def harmonic_stacking(self, input, undertones, overtones, bin_count=None, bins_per_semitone=None, offset=0):
+    if bin_count is None:
+        bin_count = self.bin_count
+    if bins_per_semitone is None:
+        bins_per_semitone = self.bins_per_semitone
+
     spectrogram_windows = []
     print("stacking the spectrogram")
     for mult in [1/(x+2) for x in range(undertones)]+list(range(1, overtones+1)):
@@ -312,10 +317,10 @@ def harmonic_stacking(self, input, undertones, overtones, offset=0):
         hz = f_ref*mult
         interval = librosa.core.hz_to_midi(hz) - librosa.core.hz_to_midi(f_ref)
 
-        int_bins = int(round((interval + offset)*self.bins_per_semitone))
+        int_bins = int(round((interval + offset)*bins_per_semitone))
 
         start = max(int_bins, 0)
-        end = self.bin_count+int_bins
+        end = bin_count+int_bins
         spec_layer = input[:, :, start:end, :]
 
         print(mult, "start", start, "end", end, "shape", spec_layer.shape, end=" ")
@@ -323,7 +328,7 @@ def harmonic_stacking(self, input, undertones, overtones, offset=0):
         if int_bins < 0:
             spec_layer = tf.pad(spec_layer, ((0, 0), (0, 0), (-int_bins, 0), (0, 0)))
 
-        spec_layer = tf.pad(spec_layer, ((0, 0), (0, 0), (0, self.bin_count-spec_layer.shape[2]), (0, 0)))
+        spec_layer = tf.pad(spec_layer, ((0, 0), (0, 0), (0, bin_count-spec_layer.shape[2]), (0, 0)))
 
         print("padded shape", spec_layer.shape)
 
@@ -396,7 +401,7 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
     timer = time.time()
 
     if small_hooks_mf0 is None:
-        small_hooks_mf0 = [MetricsHook_mf0(), VisualOutputHook_mf0(True, True, True)]
+        small_hooks_mf0 = [MetricsHook_mf0(), VisualOutputHook_mf0(True, True, False)]
     if small_hooks is None:
         small_hooks = [MetricsHook(), VisualOutputHook(True, True, False, False)]
     if valid_hooks is None:
@@ -437,14 +442,24 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
         medleydb_test_dataset = datasets.AADataset(medleydb_test, args, dataset_transform)
         medleydb_validation_dataset = datasets.AADataset(medleydb_validation, args, dataset_transform)
         medleydb_small_validation_dataset = datasets.AADataset(medleydb_small_validation, args, dataset_transform)
+
         validation_datasets += [
-            VD("small_"+datasets.medleydb.prefix, medleydb_small_validation_dataset, args.evaluate_small_every, small_hooks),
             VD(datasets.medleydb.prefix, medleydb_validation_dataset, args.evaluate_every, valid_hooks),
         ]
+        if datasets.medleydb.prefix+"_mel4" in which:
+            validation_datasets += [
+                VD("small_"+datasets.medleydb.prefix, medleydb_small_validation_dataset, args.evaluate_small_every, small_hooks_mf0),
+            ]
+        else:
+            validation_datasets += [
+                VD("small_"+datasets.medleydb.prefix, medleydb_small_validation_dataset, args.evaluate_small_every, small_hooks),
+            ]
+
         test_datasets += [
             VD(datasets.medleydb.prefix, medleydb_test_dataset, 0, test_hooks),
             VD(datasets.medleydb.prefix, medleydb_validation_dataset, 0, test_hooks),
         ]
+
         train_data += medleydb_train
 
     if datasets.mdb_melody_synth.prefix in which:

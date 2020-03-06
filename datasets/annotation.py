@@ -87,7 +87,7 @@ class Annotation:
     @property
     def freqs_mf0(self):
         if self._freqs_mf0 is None:
-            self._freqs_mf0 = [np.array(frame[:v]) for frame, v in zip(self.freqs, self.voicing)]
+            self._freqs_mf0 = [np.array(frame[frame > 0]) for frame in self.freqs]
         return self._freqs_mf0
 
     def get_frame_width(self):

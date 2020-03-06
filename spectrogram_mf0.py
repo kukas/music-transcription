@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 
 import datasets
-from model import NetworkMelody, AdjustVoicingHook
+from model import NetworkMultif0, AdjustVoicingHook, MetricsHook_mf0, SaveBestModelHook, CSVOutputWriterHook, VisualOutputHook_mf0
 from collections import namedtuple
 import sys
 import common
@@ -11,15 +11,39 @@ import librosa
 
 from tensorflow.python.ops import array_ops
 
+
+# def est_notes(self, args):
+#     print("estnote!!!!!")
+#     with tf.name_scope("est_notes"):
+#         est_mask = tf.greater(self.note_probabilities, self.voicing_threshold)
+#         print(est_mask.shape)
+
+#         est_indices = tf.where(est_mask)
+#         print_op = tf.print(tf.shape(est_mask), tf.shape(est_indices))
+
+#         print(est_indices.shape)
+#         with tf.control_dependencies([print_op]):
+#             _est_notes = tf.cast(est_indices, tf.float32) / self.bins_per_semitone + args.min_note
+#         print(_est_notes.shape)
+#         # self.est_notes_confidence = tf.reduce_max(self.note_probabilities, axis=2)
+#         self.est_notes_confidence = tf.boolean_mask(self.note_probabilities, est_mask) 
+
+#         #if self.voicing_logits is not None:
+#         #    est_notes *= tf.cast(tf.greater(self.voicing_logits, 0), tf.float32)*2 - 1
+#         #else:
+#         #    est_notes *= tf.cast(tf.greater(self.est_notes_confidence, self.voicing_threshold), tf.float32)*2 - 1
+
+#     return _est_notes
+
 def create_model(self, args):
     if args.spectrogram_undertone_stacking > 0 or args.spectrogram_overtone_stacking > 1:
         # for spectrograms where the min. frequency doesn't correspond to output min. note
         # spectrogram_min_note = librosa.core.hz_to_midi(self.spectrogram_fmin)
         # offset = args.min_note - spectrogram_min_note
-        spectrogram = common.harmonic_stacking(self, self.spectrogram, args.spectrogram_undertone_stacking, args.spectrogram_overtone_stacking)
+        spectrogram = common.harmonic_stacking(self, self.spectrogram, args.spectrogram_undertone_stacking, args.spectrogram_overtone_stacking, bin_count=360, bins_per_semitone=5)
 
-    else:
-        spectrogram = self.spectrogram[:, :, :self.bin_count, :]
+    # else:
+    #     spectrogram = self.spectrogram[:, :, :self.bin_count, :]
 
 
     args_context_size = int(self.context_width/self.spectrogram_hop_size)
@@ -29,6 +53,11 @@ def create_model(self, args):
 
     with tf.name_scope('model_pitch'):
         layer = spectrogram
+        print("self.spectrogram shape", self.spectrogram.shape)
+        print("spectrogram shape", spectrogram.shape)
+
+        layer = tf.layers.conv2d(layer, args.filters, (1, 5), (1, 5), "same", activation=None)
+        layer = activation(layer)
 
         if args.architecture.startswith("deep_simple"):
             residual = None
@@ -39,7 +68,7 @@ def create_model(self, args):
 
                 if args.undertone_stacking > 0 or args.overtone_stacking > 1:
                     print("harmonic stacking {} --> ".format(layer.shape), end="")
-                    layer = common.harmonic_stacking(self, layer, args.undertone_stacking, args.overtone_stacking)
+                    layer = common.harmonic_stacking(self, layer, args.undertone_stacking, args.overtone_stacking, bin_count=72, bins_per_semitone=1)
                     print(layer.shape)
 
                 layer = common.regularization(layer, args, training=self.is_training)
@@ -59,7 +88,7 @@ def create_model(self, args):
     if args.voicing:
         raise NotImplementedError
     else:
-        self.voicing_threshold = tf.Variable(0.15, trainable=False)
+        self.voicing_threshold = tf.Variable(0.5, trainable=False)
         tf.summary.scalar("model/voicing_threshold", self.voicing_threshold)
 
     # multif0 loss ---------
@@ -67,14 +96,16 @@ def create_model(self, args):
 
         annotations = self.annotations - args.min_note
 
-        voicing_ref = tf.cast(tf.greater(annotations[:, :, 0], 0), tf.float32)
+        # voicing_ref = tf.cast(tf.greater(annotations[:, :, 0], 0), tf.float32)
         loss_names = []
         losses = []
         if self.note_logits is not None:
             if args.annotation_smoothing > 0:
                 self.note_probabilities = tf.nn.sigmoid(self.note_logits)
+                print("self.note_probabilities.shape", self.note_probabilities.shape)
                 annotations_per_frame = tf.shape(annotations)[-1]
                 note_bins = tf.tile(tf.expand_dims(self.note_bins, 2), [1, 1, annotations_per_frame, 1])
+                print("note_bins.shape", note_bins.shape)
                 note_ref = tf.tile(tf.reshape(annotations, [-1, self.annotations_per_window, annotations_per_frame, 1]), [1, 1, 1, self.bin_count])
                 
                 ref_probabilities = tf.exp(-(note_ref-note_bins)**2/(2*args.annotation_smoothing**2))
@@ -84,12 +115,13 @@ def create_model(self, args):
                 # self.note_probabilities = ref_probabilities
                 # print(ref_probabilities.eval(), ref_probabilities.shape)
 
-                unvoiced_weights = (1-voicing_ref)*args.unvoiced_loss_weight
-                voicing_weights = tf.tile(tf.expand_dims(voicing_ref+unvoiced_weights, -1), [1, 1, self.bin_count])
+                # unvoiced_weights = (1-voicing_ref)*args.unvoiced_loss_weight
+                # voicing_weights = tf.tile(tf.expand_dims(voicing_ref+unvoiced_weights, -1), [1, 1, self.bin_count])
 
-                note_loss = tf.losses.sigmoid_cross_entropy(ref_probabilities, self.note_logits, weights=voicing_weights)
+                note_loss = tf.losses.sigmoid_cross_entropy(ref_probabilities, self.note_logits) #, weights=voicing_weights)
 
-
+                tf.summary.image("training/ref_probabilities", tf.expand_dims(ref_probabilities, -1), max_outputs=1)
+                tf.summary.image("training/note_logits", tf.expand_dims(self.note_logits, -1), max_outputs=1)
             
             loss_names.append("note_loss")
             losses.append(note_loss)
@@ -112,7 +144,7 @@ def create_model(self, args):
             tf.summary.scalar('metrics/train/'+name, loss)
 
     self.loss = tf.math.add_n(losses)
-    self.est_notes = common.est_notes(self, args)
+    self.est_notes = tf.constant(0) # placeholder, we compute est_notes on cpu
     self.training = common.optimizer(self, args)
 
 
@@ -202,7 +234,7 @@ def parse_args(argv):
     return args
 
 def construct(args):
-    network = NetworkMelody(args)
+    network = NetworkMultif0(args)
 
     with network.session.graph.as_default():
         spectrogram_function, spectrogram_thumb, spectrogram_info = common.spectrograms(args)
@@ -221,13 +253,14 @@ def construct(args):
 
         def dataset_transform_train(tf_dataset, dataset):
             return tf_dataset.shuffle(10**5).map(dataset.prepare_example, num_parallel_calls=args.threads).batch(args.batch_size).prefetch(10)
-
-        train_dataset, test_datasets, validation_datasets = common.prepare_datasets(args.datasets, args, preload_fn, dataset_transform, dataset_transform_train)
+        small_hooks = [MetricsHook_mf0(), VisualOutputHook_mf0()]
+        valid_hooks = [MetricsHook_mf0(), SaveBestModelHook(args.logdir, "Accuracy"), CSVOutputWriterHook()]
+        train_dataset, test_datasets, validation_datasets = common.prepare_datasets(args.datasets, args, preload_fn, dataset_transform, dataset_transform_train, small_hooks_mf0=small_hooks, valid_hooks=valid_hooks)
         
-        if not args.voicing:
-            for vd in validation_datasets:
-                if not vd.name.startswith("small_"):
-                    vd.hooks.append(AdjustVoicingHook())
+        # if not args.voicing:
+        #     for vd in validation_datasets:
+        #         if not vd.name.startswith("small_"):
+        #             vd.hooks.append(AdjustVoicingHook())
 
         network.construct(args, create_model, train_dataset.dataset.output_types, train_dataset.dataset.output_shapes, spectrogram_info=spectrogram_info)
 
