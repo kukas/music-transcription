@@ -4,10 +4,15 @@ import mir_eval
 import datasets
 from .audio import check_dir
 
+from madmom.io import midi
+from intervaltree import IntervalTree
+
 modulepath = os.path.dirname(os.path.abspath(__file__))
 CACHED_FILES_PATH = os.path.join(modulepath, "..", "cached")
 
 ''' Handles the common time-frequency annotation format. '''
+
+
 class Annotation:
     def __init__(self, times, freqs=None, notes=None, voicing=None):
         assert not (freqs is None and notes is None)
@@ -74,6 +79,53 @@ class Annotation:
 
             return annot
 
+    @staticmethod
+    def from_midi(annot_path, uid, hop_samples=256, unique_mf0=True):
+        check_dir(CACHED_FILES_PATH)
+        # Check if there is a cached numpy binary
+        cached_path = os.path.join(CACHED_FILES_PATH, "{}_{}.npz".format(uid, hop_samples))
+        if os.path.isfile(cached_path):
+            times, freqs, notes, voicing = np.load(cached_path).values()
+            return Annotation(times, freqs, notes, voicing)
+        else:
+            pattern = midi.MIDIFile(annot_path)
+            tree = IntervalTree()
+
+            for onset, _pitch, duration, velocity, _channel in pattern.notes:
+                pitch = int(_pitch)
+                frame_start = onset
+                frame_end = onset + duration
+                tree[frame_start:frame_end] = pitch
+            
+            max_time = max(tree)[1]
+            times = np.arange(0, max_time, hop_samples/44100)
+            notes_mf0 = []
+            for t in times:
+                notes_at_t = []
+                for note in tree[t]:
+                    notes_at_t.append(note.data)
+                if unique_mf0:
+                    # remove duplicate notes
+                    notes_at_t = list(set(notes_at_t))
+                notes_mf0.append(notes_at_t)
+            max_polyphony = np.max([len(frame) for frame in notes_mf0])
+
+            freqs = np.zeros((len(times), max_polyphony))
+            notes = np.zeros((len(times), max_polyphony))
+            voicing = np.zeros((len(times),), dtype=np.int32)
+
+            for i, notes_at_i in enumerate(notes_mf0):
+                for j, note in enumerate(notes_at_i):
+                    notes[i, j] = note
+                    freqs[i, j] = mir_eval.util.midi_to_hz(note)
+                    voicing[i] += 1
+
+            annot = Annotation(times, freqs, notes, voicing)
+
+            np.savez(cached_path, annot.times, annot.freqs, annot.notes, annot.voicing)
+
+            return annot
+
     @property
     def max_polyphony(self):
         return np.max([len(notes_frame) for notes_frame in self.notes])
@@ -94,7 +146,7 @@ class Annotation:
         if len(self.times) == 0:
             raise RuntimeError("The annotation is empty.")
         return self.times[1]-self.times[0]
-    
+
     def slice(self, start, end):
         framerate = 1/self.get_frame_width()
         b0, b1 = int(start*framerate), int(end*framerate)

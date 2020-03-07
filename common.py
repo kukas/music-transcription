@@ -433,6 +433,24 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
         ]
         return predict_dataset, test_datasets, []
 
+    if datasets.maps.prefix in which:
+        maps_train, maps_test, maps_validation, maps_small_validation = datasets.maps.prepare(preload_fn, threads=args.threads)
+        maps_test_dataset = datasets.AADataset(maps_test, args, dataset_transform)
+        maps_validation_dataset = datasets.AADataset(maps_validation, args, dataset_transform)
+        maps_small_validation_dataset = datasets.AADataset(maps_small_validation, args, dataset_transform)
+
+        validation_datasets += [
+            VD(datasets.maps.prefix, maps_validation_dataset, args.evaluate_every, valid_hooks),
+            VD("small_"+datasets.maps.prefix, maps_small_validation_dataset, args.evaluate_small_every, small_hooks_mf0),
+        ]
+
+        test_datasets += [
+            VD(datasets.maps.prefix, maps_test_dataset, 0, test_hooks),
+            VD(datasets.maps.prefix, maps_validation_dataset, 0, test_hooks),
+        ]
+
+        train_data += maps_train
+
     if datasets.medleydb.prefix in which or datasets.medleydb.prefix+"_mel4" in which:
         if datasets.medleydb.prefix+"_mel4" in which:
             annotation_type = "MELODY4"
