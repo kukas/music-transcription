@@ -131,6 +131,23 @@ def input_normalization(window, args):
 
         return (window - mean) * std_inv
 
+def _common_losses(self, args):
+    loss_names = []
+    losses = []
+    if args.l2_loss_weight > 0:
+        reg_variables = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+        l2_loss = tf.reduce_sum(tf.constant(args.l2_loss_weight)*reg_variables)
+
+        loss_names.append("l2_loss")
+        losses.append(l2_loss)
+
+    return loss_names, losses
+
+def _common_loss_metrics(self, loss_names, losses):
+    if len(losses) > 1:
+        for name, loss in zip(loss_names, losses):
+            tf.summary.scalar('metrics/train/'+name, loss)
+
 def loss(self, args):
     with tf.name_scope("losses"):
         # Melody input, not compatible with multif0 input
@@ -160,25 +177,19 @@ def loss(self, args):
             loss_names.append("note_loss")
             losses.append(note_loss)
         
-        if args.l2_loss_weight > 0:
-            reg_variables = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-            l2_loss = tf.reduce_sum(tf.constant(args.l2_loss_weight)*reg_variables)
-
-            loss_names.append("l2_loss")
-            losses.append(l2_loss)
-        
         if self.voicing_logits is not None:
             voicing_loss = tf.losses.sigmoid_cross_entropy(voicing_ref, self.voicing_logits)
 
             loss_names.append("voicing_loss")
             losses.append(voicing_loss)
 
-    if len(losses) > 1:
-        for name, loss in zip(loss_names, losses):
-            tf.summary.scalar('metrics/train/'+name, loss)
+        add_loss_names, add_losses = _common_losses(self, args)
+        loss_names += add_loss_names
+        losses += add_losses
+
+    _common_loss_metrics(self, loss_names, losses)
 
     return tf.math.add_n(losses)
-
 
 def loss_mf0(self, args):
     # multif0 loss ---------
@@ -189,13 +200,12 @@ def loss_mf0(self, args):
         losses = []
         if self.note_logits is not None:
             self.note_probabilities = tf.nn.sigmoid(self.note_logits)
+            if args.annotation_smoothing > 0:
             print("self.note_probabilities.shape", self.note_probabilities.shape)
             annotations_per_frame = tf.shape(annotations)[-1]
             note_bins = tf.tile(tf.expand_dims(self.note_bins, 2), [1, 1, annotations_per_frame, 1])
             print("note_bins.shape", note_bins.shape)
             note_ref = tf.tile(tf.reshape(annotations, [-1, self.annotations_per_window, annotations_per_frame, 1]), [1, 1, 1, self.bin_count])
-
-            if args.annotation_smoothing > 0:
                 ref_probabilities = tf.exp(-(note_ref-note_bins)**2/(2*args.annotation_smoothing**2))
                 ref_probabilities = tf.reduce_sum(ref_probabilities, axis=2)
             else:
@@ -210,9 +220,14 @@ def loss_mf0(self, args):
             loss_names.append("note_loss")
             losses.append(note_loss)
 
-        if args.l2_loss_weight > 0:
-            reg_variables = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-            l2_loss = tf.reduce_sum(tf.constant(args.l2_loss_weight)*reg_variables)
+        add_loss_names, add_losses = _common_losses(self, args)
+        loss_names += add_loss_names
+        losses += add_losses
+
+    _common_loss_metrics(self, loss_names, losses)
+
+    return tf.math.add_n(losses)
+
 
             loss_names.append("l2_loss")
             losses.append(l2_loss)
@@ -379,6 +394,43 @@ def harmonic_stacking(self, input, undertones, overtones, bin_count=None, bins_p
 
         spectrogram_windows.append(spec_layer)
     return tf.concat(spectrogram_windows, axis=-1)
+
+def hconv2d(inputs, filters, kernel_size, undertones, overtones, bins_per_octave, **kwargs):
+    # check for at least one resulting convolution
+    assert overtones >= 1 or undertones > 1
+    # assert kwargs["stride"] == (1, 1)
+    # assert kwargs["padding"] == "same"
+
+    mult_undertones = 1 / (np.arange(undertones) + 2)
+    mult_overtones = np.arange(overtones) + 1
+    harmonics = np.concatenate([mult_undertones, mult_overtones])
+    shifts = np.round(bins_per_octave*np.log2(harmonics))
+
+    with tf.name_scope('hconv2d'):
+        convs = []
+        for shift in shifts:
+            sh = int(shift)
+            if shift == 0:
+                layer = inputs
+            elif shift > 0:
+                layer = inputs[:, :, sh:, :]
+                # layer = tf.pad(layer, ((0, 0), (0, 0), (0, sh), (0, 0)))
+            else:
+                layer = inputs[:, :, :sh, :]
+                # layer = tf.pad(layer, ((0, 0), (0, 0), (-sh, 0), (0, 0)))
+
+            print(shift, layer.shape)
+
+            layer = tf.layers.conv2d(layer, filters, kernel_size, **kwargs)
+
+            if shift > 0:
+                layer = tf.pad(layer, ((0, 0), (0, 0), (0, sh), (0, 0)))
+            else:
+                layer = tf.pad(layer, ((0, 0), (0, 0), (-sh, 0), (0, 0)))
+
+            convs.append(layer)
+        added = tf.math.add_n(convs)
+    return added
 
 def regularization(layer, args, training=None):
     if args.batchnorm:

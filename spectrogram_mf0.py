@@ -33,40 +33,78 @@ def create_model(self, args):
         print("self.spectrogram shape", self.spectrogram.shape)
         print("spectrogram shape", spectrogram.shape)
 
-        # layer = tf.layers.conv2d(layer, args.filters, (1, 5), (1, 5), "same", activation=None)
-        # layer = activation(layer)
+        if args.architecture.startswith("deep_hcnn"):
+            assert len(args.conv_ctx) <= args.stacks
+            # Prepare kernel sizes (time axis = audio context)
+            args_ctx = np.abs(args.conv_ctx)
+            args_dils = np.abs(args.dilations)
+            ctxs = np.array([args_ctx[i] if i < len(args_ctx) else args_ctx[-1] for i in range(args.stacks)])
+            dils = np.array([args_dils[i] if i < len(args_dils) else args_dils[-1] for i in range(args.stacks)])
+            if args.conv_ctx[0] < 0:
+                ctxs = np.array(list(reversed(ctxs)))
+            if args.dilations[0] < 0:
+                dils = np.array(list(reversed(dils)))
+            print(ctxs)
 
-        if args.architecture.startswith("deep_simple"):
-            residual = None
-            for i in range(args.stacks):
-                layer = tf.layers.conv2d(layer, args.filters, (args.conv_ctx[0], args.conv_range), (1, 1), "same", activation=None)
+            # Cut the unnecessary context
+            needed_context_size = int(np.sum(np.ceil((ctxs-1)/2)) + np.ceil((args.last_conv_kernel[0]-1)/2))
+            actual_context_size = args_context_size
+            print("input context", args_context_size, "actual needed context", needed_context_size)
+            if args_context_size < needed_context_size:
+                print("Warning: provided context is shorter than the needed context field of the network")
+            elif args_context_size > needed_context_size:
+                if args.cut_context:
+                    print("Cutting the unnecessary context {} --> ".format(layer.shape), end="")
+                    diff = args_context_size - needed_context_size
+                    layer = layer[:, diff:-diff, :, :]
+                    actual_context_size -= diff
+                    print(layer.shape, "context now:", actual_context_size)
 
-                if args.batchnorm:
-                    print("add batchnorm")
-                    layer = tf.layers.batch_normalization(layer, training=self.is_training)
+            skip = None
+            for i, conv_ctx, dil in zip(range(args.stacks), ctxs, dils):
+                kernel = (conv_ctx, args.conv_range)
+
+                if i > 0 and args.faster_hcnn:
+                    print("add hconv2d {} filters, {} kernel".format(args.filters, kernel))
+                    layer = common.hconv2d(
+                        layer, args.filters, kernel,
+                        args.undertone_stacking, args.overtone_stacking, 60, # bins per semitone
+                        padding="same", activation=None, dilation_rate=(dil, 1))
+                    print(layer.shape)
+                else:
+                    print("add conv2d {} filters, {} kernel".format(args.filters, kernel))
+                    layer = tf.layers.conv2d(layer, args.filters, kernel, (1, 1), "same", activation=None, dilation_rate=(dil, 1))
+                    print(layer.shape)
 
                 layer = activation(layer)
 
-                if args.undertone_stacking > 0 or args.overtone_stacking > 1:
+                if (not args.faster_hcnn) and (args.undertone_stacking > 0 or args.overtone_stacking > 1):
                     print("harmonic stacking {} --> ".format(layer.shape), end="")
                     layer = common.harmonic_stacking(self, layer, args.undertone_stacking, args.overtone_stacking, bin_count=360, bins_per_semitone=5)
                     print(layer.shape)
 
-                if args.dropout:
-                    print("add dropout")
-                    layer = tf.layers.dropout(layer, args.dropout, training=self.is_training)
+                layer = common.regularization(layer, args, training=self.is_training)
 
-                if residual is None:
-                    residual = layer
-                else:
-                    residual += layer
+                if i < args.stacks - args.residual_end and i % args.residual_hop == 0:
+                    if skip is None:
+                        print(".- begin residual connection")
+                    else:
+                        if args.residual_op == "add":
+                            print("|- adding residual connection")
+                            layer += skip
+                        if args.residual_op == "concat":
+                            print("|- concatenating residual connection")
+                            layer = tf.concat([skip, layer], -1)
+                    skip = layer
 
-            layer = residual
+            layer = tf.layers.average_pooling2d(layer, (1, 5), (1, 5))
 
-            layer = tf.layers.conv2d(layer, 1, args.last_conv_kernel, (1, 5), "same", activation=None)
-            layer_cut = layer[:, args_context_size:-args_context_size, :, :]
-            self.note_logits = tf.squeeze(layer_cut, -1)
-            print("note_logits shape", self.note_logits.shape)
+            layer = tf.layers.conv2d(layer, 1, args.last_conv_kernel, (1, 1), "same", activation=None)
+            if actual_context_size > 0:
+                layer = layer[:, actual_context_size:-actual_context_size, :, :]
+
+        self.note_logits = tf.squeeze(layer, -1)
+        print("note_logits shape", self.note_logits.shape)
 
     if args.voicing:
         raise NotImplementedError
@@ -93,6 +131,7 @@ def parse_args(argv):
     parser.add_argument("--cut_context", type=int, help="Cut unnecessary context, doesn't work with dilations!")
     # model
     parser.add_argument("--architecture", type=str, help="Model architecture")
+    parser.add_argument("--faster_hcnn", type=int, help="HCNN implementation")
     parser.add_argument("--filters", type=int, help="Filters in convolutions")
     parser.add_argument("--stacks", type=int, help="Stacks")
     parser.add_argument("--conv_range", type=int, help="Stack kernel size in frequency axis")
@@ -139,7 +178,8 @@ def parse_args(argv):
         "spectrogram_undertone_stacking": 1,
         "spectrogram_overtone_stacking": 5,
         "cut_context": 1,
-        "architecture": "deep_simple",
+        "architecture": "deep_hcnn",
+        "faster_hcnn": 0,
         "filters": 12,
         "stacks": 6,
         "conv_range": 3,
@@ -148,7 +188,7 @@ def parse_args(argv):
         "activation": "relu",
         "conv_ctx": [3, 3, 1],
         "dilations": [1],
-        "last_conv_kernel": [1, 10],
+        "last_conv_kernel": [1, 1],
         "residual_hop": 1,
         "residual_end": 0,
         "residual_op": "add",
@@ -210,28 +250,4 @@ def construct(args):
 
 
 if __name__ == "__main__":
-    argv = sys.argv[1:]
-
-    args = parse_args(argv)
-    # Construct the network
-    network, train_dataset, validation_datasets, test_datasets = construct(args)
-
-    if not (args.evaluate and network.restored and not args.rewind) and not args.predict:
-        try:
-            network.train(train_dataset, validation_datasets, save_every_n_batches=10000)
-            network.save(args.checkpoint)
-        except KeyboardInterrupt:
-            network.save(args.checkpoint)
-            sys.exit()
-
-    if args.evaluate:
-        for vd in test_datasets:
-            print("{} evaluation".format(vd.name))
-            network.evaluate(vd)
-
-        # print(evaluation.summary("test", os.path.join(args.logdir, args.checkpoint+"-f0-outputs")))
-
-    if args.predict:
-        for vd in test_datasets:
-            print("{}".format(vd.name))
-            network.evaluate(vd)
+    common.main(sys.argv[1:], construct, parse_args)
