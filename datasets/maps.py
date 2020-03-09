@@ -51,10 +51,6 @@ def prepare(preload_fn, threads=None):
         parallel_preload(preload_fn, all_data, threads=threads)
     
     # TODO: choose a better small validation
-    small_validation_data = [
-        valid_data[0].slice(0, 5),
-        valid_data[1].slice(0, 5),
-        valid_data[2].slice(0, 5),
-    ]
+    small_validation_data = [aa.slice(0, 5) for aa in valid_data]
 
     return train_data, test_data, valid_data, small_validation_data
