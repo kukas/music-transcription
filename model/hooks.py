@@ -51,11 +51,12 @@ class EvaluationHook:
 
 class EvaluationHook_mf0:
     def _title(self, ctx):
-        return "Acc: {:.3f}, Pr: {:.3f}, Re: {:.3f}, Sub: {:.3f}".format(
+        return "F1: {:.3f}, Acc: {:.3f}, Pr: {:.3f}, Re: {:.3f}, Loss {:.4f}".format(
+            ctx.metrics['F1'],
             ctx.metrics['Accuracy'],
             ctx.metrics['Precision'],
             ctx.metrics['Recall'],
-            ctx.metrics['Substitution Error'],
+            ctx.metrics['Loss'],
         )
 
 
@@ -135,9 +136,10 @@ class CSVOutputWriterHook(EvaluationHook):
 
 
 class MetricsHook(EvaluationHook):
-    def __init__(self, write_summaries=True, print_detailed=False):
+    def __init__(self, write_summaries=True, print_detailed=False, split="valid"):
         self.print_detailed = print_detailed
         self.write_summaries = write_summaries
+        self.split = split
 
     def before_predict(self, ctx, vd):
         self.all_metrics = []
@@ -184,7 +186,7 @@ class MetricsHook(EvaluationHook):
             print(ctx.metrics)
 
         if vd.name is not None and self.write_summaries:
-            prefix = "valid_{}/".format(vd.name)
+            prefix = "{}_{}/".format(self.split, vd.name)
 
             global_step = tf.train.global_step(ctx.session, ctx.global_step)
 
@@ -216,6 +218,7 @@ class MetricsHook_mf0(EvaluationHook_mf0, MetricsHook):
         ref_freqs = aa.annotation.freqs_mf0
 
         metrics = mir_eval.multipitch.evaluate(ref_time, ref_freqs, est_time, est_freqs)
+        metrics["F1"] = 2 * metrics["Precision"] * metrics["Recall"] / (metrics["Precision"] + metrics["Recall"])
 
         self.all_metrics.append(metrics)
 
