@@ -278,12 +278,19 @@ class Network:
 
         last_uid = None
         first_run = True
+        timer_session_run = 0
+        timer_postprocess = 0
         while True:
+            timer_session_run -= time.time()
             try:
                 fetched_values = self.session.run(fetches, feed_dict)
             except tf.errors.OutOfRangeError:
+                timer_session_run += time.time()
                 break
+            timer_session_run += time.time()
             
+            timer_postprocess -= time.time()
+
             uids = fetched_values[0] # shape = (batch_size)
             uids = np.array(list(map(lambda uid: uid.decode("utf-8"), uids)))
             times = fetched_values[1] # shape = (batch_size, annotations_per_window)
@@ -326,7 +333,13 @@ class Network:
                 print(".", end="")
                 last_uid = uids[0]
             
+            timer_postprocess += time.time()
+        
         print()
+        print("timer_session_run {:.2f}s".format(timer_session_run))
+
+        timer_postprocess -= time.time()
+
         structured_fetched_values = dict(zip(fetches, all_values))
         for fetch_key, fetched_values in structured_fetched_values.items():
             if isinstance(fetched_values, dict):
@@ -339,6 +352,9 @@ class Network:
             elif isinstance(fetched_values, list):
                 structured_fetched_values[fetch_key] = np.array(fetched_values)
 
+        timer_postprocess += time.time()
+
+        print("timer_postprocess {:.2f}s".format(timer_postprocess))
         # the resulting dict contains either dicts indexed by uid of the datapoint
         # or list of values that are not assigned to any datapoint uid
         return structured_fetched_values
@@ -359,7 +375,9 @@ class Network:
 
         fetched_values = self._predict_handle(handle, additional_fetches)
 
+        timer = time.time()
         estimations = self._process_estimations(fetched_values)
+        print("_process_estimations() {:.2f}s".format(time.time()-timer))
 
         for hook in vd.hooks:
             hook.after_predict(self, vd, estimations, fetched_values)

@@ -3,29 +3,32 @@ import tensorflow as tf
 
 import datasets
 from .network import Network, safe_div
+import time
+from numba import jit
+
+@jit(nopython=True)
+def _process_fetched_values(probs, bins_per_semitone, min_note):
+    notes = []
+    freqs = []
+    for i in range(len(probs)):
+        frame = probs[i]
+        notes_in_frame = np.array([i/bins_per_semitone + min_note for i, prob in enumerate(frame) if prob > 0.5])
+        notes.append(notes_in_frame)
+        freqs.append(440.0 * (2.0 ** ((notes_in_frame - 69.0)/12.0)))
+    
+    return notes, freqs
 
 class NetworkMultif0(Network):
     def _process_estimations(self, fetched_values):
-        estimations = {}
         times_per_uid = fetched_values[self.times]
         note_probabilities_per_uid = fetched_values[self.note_probabilities]
+        estimations = {}
         # !!! TODO: variable note probability threshold
-        notes_per_uid = {}
-        freqs_per_uid = {}
         for uid, probs in note_probabilities_per_uid.items():
-            notes_per_uid[uid] = []
-            freqs_per_uid[uid] = []
-            for frame in probs:
-                notes_in_frame = np.array([i/self.args.bins_per_semitone + self.min_note for i, prob in enumerate(frame) if prob > 0.5])
-                notes_per_uid[uid].append(notes_in_frame)
-                freqs_per_uid[uid].append(datasets.common.midi_to_hz_safe(notes_in_frame))
-
-        for uid in notes_per_uid.keys():
-            est_time = times_per_uid[uid]
-            est_notes = notes_per_uid[uid]
-            est_freqs = freqs_per_uid[uid]
-            estimations[uid] = (est_time, est_notes, est_freqs)
-
+            est_notes, est_freqs = _process_fetched_values(probs, self.args.bins_per_semitone, self.min_note)
+            time = times_per_uid[uid]
+            estimations[uid] = (time, est_notes, est_freqs)
+        
         return estimations
 
     def _summaries(self, args):
