@@ -180,6 +180,51 @@ def loss(self, args):
     return tf.math.add_n(losses)
 
 
+def loss_mf0(self, args):
+    # multif0 loss ---------
+    with tf.name_scope("losses"):
+        annotations = self.annotations - args.min_note
+
+        loss_names = []
+        losses = []
+        if self.note_logits is not None:
+            self.note_probabilities = tf.nn.sigmoid(self.note_logits)
+            print("self.note_probabilities.shape", self.note_probabilities.shape)
+            annotations_per_frame = tf.shape(annotations)[-1]
+            note_bins = tf.tile(tf.expand_dims(self.note_bins, 2), [1, 1, annotations_per_frame, 1])
+            print("note_bins.shape", note_bins.shape)
+            note_ref = tf.tile(tf.reshape(annotations, [-1, self.annotations_per_window, annotations_per_frame, 1]), [1, 1, 1, self.bin_count])
+
+            if args.annotation_smoothing > 0:
+                ref_probabilities = tf.exp(-(note_ref-note_bins)**2/(2*args.annotation_smoothing**2))
+                ref_probabilities = tf.reduce_sum(ref_probabilities, axis=2)
+            else:
+                ref_probabilities = tf.reduce_sum(tf.one_hot(tf.cast(annotations, tf.int32), self.note_range), axis=2)
+                ref_probabilities = tf.cast(tf.greater(ref_probabilities, 0), tf.float32)
+
+            note_loss = tf.losses.sigmoid_cross_entropy(ref_probabilities, self.note_logits)  # , weights=voicing_weights)
+
+            tf.summary.image("training/ref_probabilities", tf.expand_dims(ref_probabilities, -1), max_outputs=1)
+            tf.summary.image("training/note_logits", tf.expand_dims(self.note_logits, -1), max_outputs=1)
+
+            loss_names.append("note_loss")
+            losses.append(note_loss)
+
+        if args.l2_loss_weight > 0:
+            reg_variables = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+            l2_loss = tf.reduce_sum(tf.constant(args.l2_loss_weight)*reg_variables)
+
+            loss_names.append("l2_loss")
+            losses.append(l2_loss)
+
+    if len(losses) > 1:
+        for name, loss in zip(loss_names, losses):
+            tf.summary.scalar('metrics/train/'+name, loss)
+
+    return tf.math.add_n(losses)
+
+
+
 def est_notes(self, args):
     with tf.name_scope("est_notes"):
         peak_est = tf.cast(tf.argmax(self.note_probabilities, axis=2) / self.bins_per_semitone, tf.float32)
@@ -261,7 +306,7 @@ def spectrograms(args):
 
             log_hcqt = ((1.0/80.0) * librosa.core.amplitude_to_db(
                 np.abs(np.array(cqt_list)), ref=np.max)) + 1.0
-
+            
             return (log_hcqt*65535).astype(np.uint16)
 
         spectrogram_thumb = "hcqt-fmin{}-oct{}-octbins{}-hop{}-db-uint16".format(FMIN, N_BINS/BINS_PER_OCTAVE, BINS_PER_OCTAVE, HOP_LENGTH)
@@ -335,14 +380,14 @@ def harmonic_stacking(self, input, undertones, overtones, bin_count=None, bins_p
         spectrogram_windows.append(spec_layer)
     return tf.concat(spectrogram_windows, axis=-1)
 
-def regularization(voicing_layer, args, training=None):
+def regularization(layer, args, training=None):
     if args.batchnorm:
         print("add batchnorm")
-        voicing_layer = tf.layers.batch_normalization(voicing_layer, training=training)
+        layer = tf.layers.batch_normalization(layer, training=training)
     if args.dropout:
         print("add dropout")
-        voicing_layer = tf.layers.dropout(voicing_layer, args.dropout, training=training)
-    return voicing_layer
+        layer = tf.layers.dropout(layer, args.dropout, training=training)
+    return layer
 
 def bn_conv(inputs, filters, size, strides, padding, activation=None, dilation_rate=1, training=False, reuse=None):
     name = "bn_conv{}-f{}-s{}-dil{}-{}".format(size, filters, strides, dilation_rate, padding)
@@ -446,7 +491,7 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
 
         test_datasets += [
             VD(datasets.maps.prefix, maps_test_dataset, 0, test_hooks),
-            VD(datasets.maps.prefix, maps_validation_dataset, 0, test_hooks),
+            # VD(datasets.maps.prefix, maps_validation_dataset, 0, test_hooks),
         ]
 
         train_data += maps_train

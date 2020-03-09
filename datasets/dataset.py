@@ -40,7 +40,7 @@ class AADataset:
         indices = []
         for aa_index, aa in enumerate(self._annotated_audios):
             if self.window_size > aa.audio.samples_count:
-                raise RuntimeError("Window size is bigger than the audio.")
+                raise RuntimeError("Window size is bigger than the audio.\nwindow_size={}, aa.audio.samples_count={}".format(self.window_size, aa.audio.samples_count))
 
             annot_length = len(aa.annotation.times)
             annotation_indices = np.arange(0, annot_length, self.hop_size, dtype=np.int32)
