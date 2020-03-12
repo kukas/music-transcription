@@ -49,11 +49,11 @@ def draw_notes_on_ax(ref, est, ax, onlyvoiced=False, timescale=1, ms=1):
     indices_incorrect_chroma_negative, incorrect_chroma_negative = flatten([[-n_est for n_est in fest if n_est < 0 and all(
         [not abs_correct(n_ref, -n_est) and octave_correct(n_ref, -n_est) for n_ref in fref]) and len(fref) > 0] for fref, fest in zip(ref, est)], timescale)
 
-    indices_correct, correct = flatten([[n_est for n_est in fest if n_est > 0 and any([abs_correct(n_ref, n_est) for n_ref in fref])] for fref, fest in zip(ref, est)], timescale)
-    indices_unvoiced_incorrect, unvoiced_incorrect = flatten([[n_est for n_est in fest if n_est > 0 and len(fref) == 0] for fref, fest in zip(ref, est)], timescale)
-    indices_incorrect_chroma, incorrect_chroma = flatten([[n_est for n_est in fest if n_est > 0 and all(
+    indices_correct, correct = flatten([[n_est for n_est in fest if n_est >= 0 and any([abs_correct(n_ref, n_est) for n_ref in fref])] for fref, fest in zip(ref, est)], timescale)
+    indices_unvoiced_incorrect, unvoiced_incorrect = flatten([[n_est for n_est in fest if n_est >= 0 and len(fref) == 0] for fref, fest in zip(ref, est)], timescale)
+    indices_incorrect_chroma, incorrect_chroma = flatten([[n_est for n_est in fest if n_est >= 0 and all(
         [not abs_correct(n_ref, n_est) and octave_correct(n_ref, n_est) for n_ref in fref]) and len(fref) > 0] for fref, fest in zip(ref, est)], timescale)
-    indices_incorrect, incorrect = flatten([[n_est for n_est in fest if n_est > 0 and all([not abs_correct(n_ref, n_est) and not octave_correct(n_ref, n_est)
+    indices_incorrect, incorrect = flatten([[n_est for n_est in fest if n_est >= 0 and all([not abs_correct(n_ref, n_est) and not octave_correct(n_ref, n_est)
                                                                                            for n_ref in fref]) and len(fref) > 0] for fref, fest in zip(ref, est)], timescale)
     indices_ref_rest, ref_rest = flatten(ref, timescale)
 
@@ -75,7 +75,7 @@ def draw_notes_on_ax(ref, est, ax, onlyvoiced=False, timescale=1, ms=1):
         ax.plot(indices_incorrect_chroma_negative, incorrect_chroma_negative, style, color="#FADEB9", label="Výška nesprávná (o oktávu); Detekce nesprávná negativní", markersize=1)
 
 
-def draw_notes(ref, est, title=None, dynamic_figsize=True, note_probs=None):
+def draw_notes(ref, est, title=None, dynamic_figsize=True, note_probs=None, markersize=1, min_note=0, note_range=128):
     nrows = 1
     if note_probs is not None:
         nrows = 2
@@ -89,8 +89,11 @@ def draw_notes(ref, est, title=None, dynamic_figsize=True, note_probs=None):
     fig, axs = plt.subplots(nrows, 1, sharex=True, sharey=False, squeeze=False, figsize=(width, height))
     axs = axs[:,0]
 
-    draw_notes_on_ax(ref, est, ax=axs[0])
-    axs[0].legend(markerscale=10)
+    draw_notes_on_ax(ref, est, ax=axs[0], ms=markersize)
+    if(markersize <= 3):
+        axs[0].legend(markerscale=10)
+    else:
+        axs[0].legend()
 
     if title:
         axs[0].set_title(title)
@@ -98,13 +101,13 @@ def draw_notes(ref, est, title=None, dynamic_figsize=True, note_probs=None):
     axs[0].set_xlim(0, len(ref))
 
     bottom, top = axs[0].get_ylim()
-    axs[0].set_ylim(max(0, bottom), min(128, top))
+    axs[0].set_ylim(max(min_note, bottom), min(min_note+note_range, top))
 
     if note_probs is not None:
         axs[1].set_ylabel("midi note")
         axs[1].set_xlabel("frame")
-        axs[1].set_ylim(0, 128)
-        axs[1].imshow(note_probs, aspect="auto", origin='lower', extent=[0, note_probs.shape[1], 0, 128])
+        axs[1].set_ylim(min_note, min_note+note_range)
+        axs[1].imshow(note_probs, aspect="auto", origin='lower', extent=[0, note_probs.shape[1], min_note, min_note+note_range])
 
     # indices_ref, ref = flatten(ref)
     # axs[1].plot(indices_ref, ref, ",", color="#ff0000", alpha=1.0)

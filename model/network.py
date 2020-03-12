@@ -382,11 +382,11 @@ class Network:
         for hook in vd.hooks:
             hook.after_predict(self, vd, estimations, fetched_values)
 
-        for uid, (est_time, est_notes, est_freqs) in estimations.items():
+        for uid, est in estimations.items():
             aa = vd.dataset.get_annotated_audio_by_uid(uid)
 
             for hook in vd.hooks:
-                hook.every_aa(self, vd, aa, est_time, est_notes, est_freqs)
+                hook.every_aa(self, vd, aa, est)
 
         for hook in vd.hooks:
             hook.after_run(self, vd, fetched_values)

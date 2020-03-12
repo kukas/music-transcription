@@ -3,7 +3,7 @@ import numpy as np
 import mir_eval
 import datasets
 from .audio import check_dir
-
+import csv
 from madmom.io import midi
 from intervaltree import IntervalTree
 
@@ -11,8 +11,6 @@ modulepath = os.path.dirname(os.path.abspath(__file__))
 CACHED_FILES_PATH = os.path.join(modulepath, "..", "cached")
 
 ''' Handles the common time-frequency annotation format. '''
-
-
 class Annotation:
     def __init__(self, times, freqs=None, notes=None, voicing=None):
         assert not (freqs is None and notes is None)
@@ -23,6 +21,7 @@ class Annotation:
         self.notes = notes
         self._notes_mf0 = None
         self.voicing = voicing
+        self._ref_matrix = None
 
         if freqs is None:
             self.freqs = datasets.common.midi_to_hz_safe(self.notes)
@@ -126,6 +125,64 @@ class Annotation:
 
             return annot
 
+    @staticmethod
+    def from_musicnet_csv(annot_path, uid, hop_samples=256, unique_mf0=True, annot="instrument", instrument_mappings=None):
+        check_dir(CACHED_FILES_PATH)
+        # Check if there is a cached numpy binary
+        cached_path = os.path.join(CACHED_FILES_PATH, "{}_{}.npz".format(uid, hop_samples))
+        if os.path.isfile(cached_path):
+            times, freqs, notes, voicing = np.load(cached_path).values()
+            return Annotation(times, freqs, notes, voicing)
+        else:
+            print("generating from", annot_path)
+            tree = IntervalTree()
+
+            with open(annot_path, 'r') as f:
+                reader = csv.DictReader(f, delimiter=',')
+                for label in reader:
+                    start_time = int(label['start_time'])/44100
+                    end_time = int(label['end_time'])/44100
+
+                    # instrument = int(label['instrument'])
+                    # note = int(label['note'])
+                    # start_beat = float(label['start_beat'])
+                    # end_beat = float(label['end_beat'])
+                    # note_value = label['note_value']
+                    if annot == "instrument":
+                        instrument_midi = int(label['instrument'])
+                        instrument_id = instrument_mappings[instrument_midi]["id"]
+                        
+                        tree[start_time:end_time] = instrument_id
+
+            max_time = max(tree)[1]
+            times = np.arange(0, max_time, hop_samples/44100)
+            notes_mf0 = []
+            for t in times:
+                notes_at_t = []
+                for note in tree[t]:
+                    notes_at_t.append(note.data)
+                if unique_mf0:
+                    # remove duplicate notes
+                    notes_at_t = list(set(notes_at_t))
+                notes_mf0.append(notes_at_t)
+            max_polyphony = np.max([len(frame) for frame in notes_mf0])
+
+            # freqs = np.zeros((len(times), max_polyphony))
+            notes = np.full((len(times), max_polyphony), -1)
+            voicing = np.zeros((len(times),), dtype=np.int32)
+
+            for i, notes_at_i in enumerate(notes_mf0):
+                for j, note in enumerate(notes_at_i):
+                    notes[i, j] = note
+                    # freqs[i, j] = mir_eval.util.midi_to_hz(note)
+                    voicing[i] += 1
+
+            annot = Annotation(times, np.array([]), notes, voicing)
+
+            np.savez(cached_path, annot.times, annot.freqs, annot.notes, annot.voicing)
+
+            return annot
+
     @property
     def max_polyphony(self):
         return np.max([len(notes_frame) for notes_frame in self.notes])
@@ -141,6 +198,18 @@ class Annotation:
         if self._freqs_mf0 is None:
             self._freqs_mf0 = [np.array(frame[frame > 0]) for frame in self.freqs]
         return self._freqs_mf0
+    
+    def ref_matrix(self, note_range, min_note):
+        size = note_range - min_note
+        if self._ref_matrix is None or self._ref_matrix.shape[1] != note_range:
+            self._ref_matrix = np.full((len(self.times), size), False)
+            for t, notes_frame in enumerate(self.notes_mf0):
+                for _note in notes_frame:
+                    # _note has type float32
+                    note = int(_note) - min_note
+                    self._ref_matrix[t, note] = True
+
+        return self._ref_matrix
 
     def get_frame_width(self):
         if len(self.times) == 0:

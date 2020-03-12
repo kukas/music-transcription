@@ -10,6 +10,7 @@ import matplotlib
 import os
 import csv
 import time
+import sklearn
 mir_eval.multipitch.MIN_FREQ = 1
 
 
@@ -30,7 +31,7 @@ class EvaluationHook:
     def after_predict(self, ctx, vd, estimations, additional):
         pass
 
-    def every_aa(self, ctx, vd, aa, est_time, est_notes, est_freq):
+    def every_aa(self, ctx, vd, aa, est):
         pass
 
 
@@ -48,12 +49,21 @@ class EvaluationHook:
             ctx.metrics['Loss']
         )
 
-
 class EvaluationHook_mf0:
     def _title(self, ctx):
         return "F1: {:.3f}, Acc: {:.3f}, Pr: {:.3f}, Re: {:.3f}, Loss {:.4f}".format(
             ctx.metrics['F1'],
             ctx.metrics['Accuracy'],
+            ctx.metrics['Precision'],
+            ctx.metrics['Recall'],
+            ctx.metrics['Loss'],
+        )
+
+
+class EvaluationHook_mir(EvaluationHook_mf0):
+    def _title(self, ctx):
+        return "F1: {:.3f}, Pr: {:.3f}, Re: {:.3f}, Loss {:.4f}".format(
+            ctx.metrics['F1'],
             ctx.metrics['Precision'],
             ctx.metrics['Recall'],
             ctx.metrics['Loss'],
@@ -66,6 +76,7 @@ class VisualOutputHook(EvaluationHook):
         self.draw_probs = draw_probs
         self.draw_confusion = draw_confusion
         self.draw_hists = draw_hists
+        self.markersize = 1
 
     def before_predict(self, ctx, vd):
         self.ref_notes = []
@@ -75,7 +86,8 @@ class VisualOutputHook(EvaluationHook):
             additional.append(ctx.note_probabilities)
         return additional
 
-    def every_aa(self, ctx, vd, aa, est_time, est_notes, est_freq):
+    def every_aa(self, ctx, vd, aa, est):
+        est_time, est_notes, est_freq = est
         self.ref_notes += aa.annotation.notes_mf0
         self.est_notes += datasets.common.melody_to_multif0(est_notes)
 
@@ -91,7 +103,7 @@ class VisualOutputHook(EvaluationHook):
             if self.draw_probs:
                 note_probs = np.concatenate(list(additional[ctx.note_probabilities].values())).T
 
-            fig = vis.draw_notes(reference, estimation, title=title, note_probs=note_probs)
+            fig = vis.draw_notes(reference, estimation, title=title, note_probs=note_probs, markersize=self.markersize, min_note=ctx.min_note, note_range=ctx.note_range)
             add_fig(fig, ctx.summary_writer, prefix+"notes", global_step)
 
         if self.draw_confusion:
@@ -112,7 +124,8 @@ class CSVOutputWriterHook(EvaluationHook):
         self.write_estimations_timer = 0
         return []
 
-    def every_aa(self, ctx, vd, aa, est_time, est_notes, est_freq):
+    def every_aa(self, ctx, vd, aa, est):
+        est_time, est_notes, est_freq = est
         timer = time.time()
         if self.output_file is None:
             est_dir = self.output_path
@@ -134,7 +147,6 @@ class CSVOutputWriterHook(EvaluationHook):
     def after_run(self, ctx, vd, additional):
         print("csv outputs written in {:.2f}s".format(self.write_estimations_timer))
 
-
 class MetricsHook(EvaluationHook):
     def __init__(self, write_summaries=True, print_detailed=False, split="valid"):
         self.print_detailed = print_detailed
@@ -145,7 +157,8 @@ class MetricsHook(EvaluationHook):
         self.all_metrics = []
         return [ctx.loss]
 
-    def every_aa(self, ctx, vd, aa, est_time, est_notes, est_freq):
+    def every_aa(self, ctx, vd, aa, est):
+        est_time, est_notes, est_freq = est
         ref_time = aa.annotation.times
         ref_freq = aa.annotation.freqs[:, 0]
 
@@ -197,6 +210,49 @@ class MetricsHook(EvaluationHook):
         self._save_metrics(ctx, vd, additional)
         print("{}: {}".format(vd.name, self._title(ctx)))
 
+class MetricsHook_mf0(EvaluationHook_mf0, MetricsHook):
+    def every_aa(self, ctx, vd, aa, est):
+        est_time, est_notes, est_freqs = est
+        ref_time = aa.annotation.times
+        ref_freqs = aa.annotation.freqs_mf0
+
+        metrics = mir_eval.multipitch.evaluate(ref_time, ref_freqs, est_time, est_freqs)
+        metrics["F1"] = 2 * metrics["Precision"] * metrics["Recall"] / (metrics["Precision"] + metrics["Recall"])
+
+        self.all_metrics.append(metrics)
+
+class MetricsHook_mir(EvaluationHook_mir, MetricsHook):
+    def __init__(self, instrument_mappings, **kwds):
+        self.instrument_mappings = instrument_mappings
+        self.target_names = [None]*(max([im["id"] for im in instrument_mappings.values()]) + 1)
+        for _, im in instrument_mappings.items():
+            i = im["id"]
+            self.target_names[i] = im["instrument"]
+
+        super().__init__(**kwds)
+
+    def every_aa(self, ctx, vd, aa, est):
+        est_time, classes, est_matrix = est
+        ref_time = aa.annotation.times
+        ref_matrix = aa.annotation.ref_matrix(ctx.note_range, 0)
+        # print("est", est_matrix, "\nref:", ref_matrix, "\n\n")
+
+        assert ref_matrix.shape == est_matrix.shape
+        report = sklearn.metrics.classification_report(est_matrix, ref_matrix, target_names=self.target_names, output_dict=True)
+        # print(report)
+        metrics = {
+            "F1": report["micro avg"]["f1-score"],
+            "Precision": report["micro avg"]["precision"],
+            "Recall": report["micro avg"]["recall"],
+        }
+
+        for target in self.target_names:
+            metrics["Class "+target+" F1"] = report[target]["f1-score"]
+            metrics["Class "+target+" Recall"] = report[target]["recall"]
+            metrics["Class "+target+" Precision"] = report[target]["precision"]
+
+        self.all_metrics.append(metrics)
+
 class SaveSaliencesHook(EvaluationHook):
     def before_predict(self, ctx, vd):
         return [ctx.note_probabilities]
@@ -212,23 +268,20 @@ class SaveSaliencesHook(EvaluationHook):
 
         print("saliences written in {:.2f}s".format(time.time()-timer))
 
-class MetricsHook_mf0(EvaluationHook_mf0, MetricsHook):
-    def every_aa(self, ctx, vd, aa, est_time, est_notes, est_freqs):
-        ref_time = aa.annotation.times
-        ref_freqs = aa.annotation.freqs_mf0
-
-        metrics = mir_eval.multipitch.evaluate(ref_time, ref_freqs, est_time, est_freqs)
-        metrics["F1"] = 2 * metrics["Precision"] * metrics["Recall"] / (metrics["Precision"] + metrics["Recall"])
-
-        self.all_metrics.append(metrics)
-
 
 class VisualOutputHook_mf0(EvaluationHook_mf0, VisualOutputHook):
-    def every_aa(self, ctx, vd, aa, est_time, est_notes, est_freq):
+    def every_aa(self, ctx, vd, aa, est):
+        est_time, est_notes, est_freq = est
         self.ref_notes += aa.annotation.notes_mf0
         self.est_notes += est_notes
 
 
+class VisualOutputHook_mir(EvaluationHook_mir, VisualOutputHook):
+    def every_aa(self, ctx, vd, aa, est):
+        time, classes, est_matrix = est
+        self.ref_notes += aa.annotation.notes_mf0
+        self.est_notes += classes
+        self.markersize = 20
 
 class SaveBestModelHook(EvaluationHook):
     def __init__(self, logdir, watch_metric = "Raw Pitch Accuracy"):

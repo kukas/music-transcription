@@ -55,11 +55,11 @@ class AADataset:
         index_dataset = tf.data.Dataset.from_tensor_slices((indices.T[0], indices.T[1]))
 
         self.output_types, self.output_shapes = list(zip(*[
-            (tf.int16,   tf.TensorShape([self.window_size])),
-            (tf.uint16,    tf.TensorShape([None, None, None])),
-            (tf.float32, tf.TensorShape([self.annotations_per_window, None])),
-            (tf.float64, tf.TensorShape([self.annotations_per_window])),
-            (tf.string,  None),
+            (tf.int16,   tf.TensorShape([self.window_size])), # audio
+            (tf.uint16,    tf.TensorShape([None, None, None])), # spectrogram
+            (tf.float32, tf.TensorShape([self.annotations_per_window, None])), # annotations
+            (tf.float64, tf.TensorShape([self.annotations_per_window])), # times
+            (tf.string,  None), # uid
         ]))
 
         self.dataset = index_dataset if dataset_transform is None else index_dataset.apply(lambda tf_dataset: dataset_transform(tf_dataset, self))
@@ -69,6 +69,8 @@ class AADataset:
         print("dataset examples:", self.total_examples)
         self.max_polyphony = np.max([aa.annotation.max_polyphony for aa in self._annotated_audios])
         print("max. polyphony:", self.max_polyphony)
+        print("max. note:", np.max([np.max(aa.annotation.notes) for aa in self._annotated_audios]))
+        print("min. note:", np.min([np.min(aa.annotation.notes) for aa in self._annotated_audios]))
         if self.annotations_per_window != self.hop_size:
             print("using hop_size", self.hop_size)
         print()
@@ -113,14 +115,14 @@ class AADataset:
         
         annotations = aa.annotation.notes[annotation_start:annotation_end]
         if annotations.shape[1] < self.max_polyphony:
-            annotations = np.pad(annotations, ((0, 0), (0, self.max_polyphony - annotations.shape[1])), "constant")
+            annotations = np.pad(annotations, ((0, 0), (0, self.max_polyphony - annotations.shape[1])), "constant", constant_values=-1)
 
         times = aa.annotation.times[annotation_start:annotation_end]
 
         len_diff = self.annotations_per_window - (annotation_end - annotation_start)
         if len_diff > 0:
             times = np.pad(times, (0, len_diff), "constant", constant_values=(-1, -1))
-            annotations = np.pad(annotations, ((0, len_diff),(0, 0)), "constant")
+            annotations = np.pad(annotations, ((0, len_diff), (0, 0)), "constant", constant_values=-1)
 
         window_start_sample = int(np.round(times[0]*self.samplerate))
         audio, spectrogram = aa.audio.get_window_at_sample(window_start_sample, self.inner_window_size, self.context_width)

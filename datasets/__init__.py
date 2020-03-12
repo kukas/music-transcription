@@ -12,5 +12,6 @@ from . import mdb_stem_synth
 from . import mdb_mf0_synth
 from . import wjazzd
 from . import maps
+from . import musicnet_mir
 
 from .common import load_melody_dataset

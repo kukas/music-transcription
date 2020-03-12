@@ -42,7 +42,10 @@ class Audio:
 
                 sf.write(resampled_path, audio_low.astype(np.float32), samplerate)
 
-        audio, sr_orig = sf.read(resampled_path, dtype="int16")
+        # there was a problem with MusicNet wavs for some reason
+        # audio, sr_orig = sf.read(resampled_path, dtype="int16")
+        # convert float (-1, 1) to int16 (-32767, +32767)
+        audio = (audio*32767).astype(np.int16)
 
         if len(audio.shape) >= 2:  # mono downmixing, if needed
             audio = np.mean(audio, 1)

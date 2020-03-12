@@ -182,7 +182,7 @@ def loss(self, args):
 
             loss_names.append("voicing_loss")
             losses.append(voicing_loss)
-
+    
         add_loss_names, add_losses = _common_losses(self, args)
         loss_names += add_loss_names
         losses += add_losses
@@ -201,11 +201,11 @@ def loss_mf0(self, args):
         if self.note_logits is not None:
             self.note_probabilities = tf.nn.sigmoid(self.note_logits)
             if args.annotation_smoothing > 0:
-            print("self.note_probabilities.shape", self.note_probabilities.shape)
-            annotations_per_frame = tf.shape(annotations)[-1]
-            note_bins = tf.tile(tf.expand_dims(self.note_bins, 2), [1, 1, annotations_per_frame, 1])
-            print("note_bins.shape", note_bins.shape)
-            note_ref = tf.tile(tf.reshape(annotations, [-1, self.annotations_per_window, annotations_per_frame, 1]), [1, 1, 1, self.bin_count])
+                print("self.note_probabilities.shape", self.note_probabilities.shape)
+                annotations_per_frame = tf.shape(annotations)[-1]
+                note_bins = tf.tile(tf.expand_dims(self.note_bins, 2), [1, 1, annotations_per_frame, 1])
+                print("note_bins.shape", note_bins.shape)
+                note_ref = tf.tile(tf.reshape(annotations, [-1, self.annotations_per_window, annotations_per_frame, 1]), [1, 1, 1, self.bin_count])
                 ref_probabilities = tf.exp(-(note_ref-note_bins)**2/(2*args.annotation_smoothing**2))
                 ref_probabilities = tf.reduce_sum(ref_probabilities, axis=2)
             else:
@@ -228,17 +228,34 @@ def loss_mf0(self, args):
 
     return tf.math.add_n(losses)
 
+def loss_mir(self, args):
+    # multi-instrument recognition
+    with tf.name_scope("losses"):
+        annotations = self.annotations
 
-            loss_names.append("l2_loss")
-            losses.append(l2_loss)
+        loss_names = []
+        losses = []
+        if self.note_logits is not None:
+            self.note_probabilities = tf.nn.sigmoid(self.note_logits)
+            ref_probabilities = tf.reduce_sum(tf.one_hot(tf.cast(annotations, tf.int32), self.note_range), axis=2)
+            ref_probabilities = tf.cast(tf.greater(ref_probabilities, 0), tf.float32)
+            print("ref_probabilities.shape", ref_probabilities.shape)
 
-    if len(losses) > 1:
-        for name, loss in zip(loss_names, losses):
-            tf.summary.scalar('metrics/train/'+name, loss)
+            note_loss = tf.losses.sigmoid_cross_entropy(ref_probabilities, self.note_logits)
+
+            tf.summary.image("training/ref_probabilities", tf.expand_dims(ref_probabilities, -1), max_outputs=1)
+            tf.summary.image("training/note_logits", tf.expand_dims(self.note_logits, -1), max_outputs=1)
+
+            loss_names.append("note_loss")
+            losses.append(note_loss)
+
+        add_loss_names, add_losses = _common_losses(self, args)
+        loss_names += add_loss_names
+        losses += add_losses
+
+    _common_loss_metrics(self, loss_names, losses)
 
     return tf.math.add_n(losses)
-
-
 
 def est_notes(self, args):
     with tf.name_scope("est_notes"):
@@ -529,6 +546,24 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
             VD("predict", predict_dataset, 0, [CSVOutputWriterHook(output_path="./predict_outputs", output_file=output_file, output_format=args.output_format)]),
         ]
         return predict_dataset, test_datasets, []
+
+    if datasets.musicnet_mir.prefix in which:
+        musicnet_train, musicnet_test, musicnet_validation, musicnet_small_validation = datasets.musicnet_mir.prepare(preload_fn, threads=args.threads)
+        musicnet_test_dataset = datasets.AADataset(musicnet_test, args, dataset_transform)
+        musicnet_validation_dataset = datasets.AADataset(musicnet_validation, args, dataset_transform)
+        musicnet_small_validation_dataset = datasets.AADataset(musicnet_small_validation, args, dataset_transform)
+
+        validation_datasets += [
+            VD(datasets.musicnet_mir.prefix, musicnet_validation_dataset, args.evaluate_every, valid_hooks),
+            VD("small_"+datasets.musicnet_mir.prefix, musicnet_small_validation_dataset, args.evaluate_small_every, small_hooks_mf0),
+        ]
+
+        test_datasets += [
+            VD(datasets.musicnet_mir.prefix, musicnet_test_dataset, 0, test_hooks),
+            # VD(datasets.musicnet_mir.prefix, musicnet_validation_dataset, 0, test_hooks),
+        ]
+
+        train_data += musicnet_train
 
     if datasets.maps.prefix in which:
         maps_train, maps_test, maps_validation, maps_small_validation = datasets.maps.prepare(preload_fn, threads=args.threads)
