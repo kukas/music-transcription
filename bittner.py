@@ -49,7 +49,7 @@ def create_model(self, args):
         if args.undertone_stacking > 0 or args.overtone_stacking > 1:
             layer = common.harmonic_stacking(self, layer, args.undertone_stacking, args.overtone_stacking)
 
-        layer = tf.layers.conv2d(layer, max(1, args.capacity_multiplier//8), (3, 70), (1, 1), "same", activation=tf.nn.relu)
+        layer = tf.layers.conv2d(layer, max(2, args.capacity_multiplier//8), (3, 70), (1, 1), "same", activation=tf.nn.relu)
         layer = tf.layers.batch_normalization(layer, training=self.is_training)
 
         if args.undertone_stacking > 0 or args.overtone_stacking > 1:
