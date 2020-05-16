@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 
 import datasets
-from model import NetworkMultiInstrumentRecognition, MetricsHook_mir, SaveBestModelHook, CSVOutputWriterHook, VisualOutputHook_mir
+from model import *
 from collections import namedtuple
 import sys
 import common
@@ -13,11 +13,20 @@ from tensorflow.python.ops import array_ops
 
 
 def create_model(self, args):
+    if args.spectrogram == "cqt":
+        spec_bin_count = 360
+        spec_bins_per_semitone = 5
+    if args.spectrogram == "YunNingHung_cqt":
+        spec_bin_count = 88
+        spec_bins_per_semitone = 1
+
     if args.spectrogram_undertone_stacking > 0 or args.spectrogram_overtone_stacking > 1:
-        spectrogram = common.harmonic_stacking(self, self.spectrogram, args.spectrogram_undertone_stacking, args.spectrogram_overtone_stacking, bin_count=360, bins_per_semitone=5)
+        spectrogram = common.harmonic_stacking(self, self.spectrogram, args.spectrogram_undertone_stacking, args.spectrogram_overtone_stacking,
+                                               bin_count=spec_bin_count, bins_per_semitone=spec_bins_per_semitone)
     else:
         spectrogram = self.spectrogram
-        # spectrogram = self.spectrogram[:, :, :self.bin_count, :]
+        if args.spectrogram == "cqt":
+            spectrogram = self.spectrogram[:, :, :spec_bin_count, :]
 
     args_context_size = int(self.context_width/self.spectrogram_hop_size)
 
@@ -34,7 +43,10 @@ def create_model(self, args):
             #layer = activation(layer)
             #layer = tf.layers.average_pooling2d(layer, (5, 1), (5, 1))
             layer = tf.layers.flatten(layer)
-            layer = tf.layers.dense(layer, 100)
+            layer = tf.layers.dense(layer, 100, use_bias=(not args.batchnorm))
+            if args.batchnorm:
+                layer = tf.layers.batch_normalization(layer, training=self.is_training)
+
             layer = activation(layer)
             layer = tf.layers.dense(layer, args.note_range*args.annotations_per_window)
             layer = tf.reshape(layer, (-1, args.annotations_per_window, args.note_range))
@@ -43,7 +55,7 @@ def create_model(self, args):
             # self.note_logits = tf.squeeze(layer_cut, -1)
             print("note_logits shape", self.note_logits.shape)
 
-        if args.architecture.startswith("JY"):
+        if args.architecture.startswith("LY"):
             # batch_size, annotations_per_wind, time, freq
             def conv_block(self, layer, args, channels, kernel, time_padding):
                 layer = tf.pad(layer, ((0, 0), (time_padding, time_padding), (0, 0), (0, 0)))
@@ -51,19 +63,20 @@ def create_model(self, args):
                 if args.batchnorm:
                     layer = tf.layers.batch_normalization(layer, training=self.is_training)
                 layer = activation(layer)
+
                 return layer
             print(layer.shape)
-            layer = conv_block(self, layer, args, 32, (7, spectrogram.shape[2]), 3)
+            layer = conv_block(self, layer, args, args.filters, (7, spectrogram.shape[2]), 3)
             print(layer.shape)
             layer = tf.layers.max_pooling2d(layer, (3, 1), (3, 1))
             print(layer.shape)
-            layer = conv_block(self, layer, args, 32, (7, 1), 3)
+            layer = conv_block(self, layer, args, args.filters, (7, 1), 3)
             print(layer.shape)
             layer = tf.layers.max_pooling2d(layer, (3, 1), (3, 1))
             print(layer.shape)
-            layer = conv_block(self, layer, args, 512, (1, 1), 0)
+            layer = conv_block(self, layer, args, 16*args.filters, (1, 1), 0)
             print(layer.shape)
-            layer = conv_block(self, layer, args, 512, (1, 1), 0)
+            layer = conv_block(self, layer, args, 16*args.filters, (1, 1), 0)
             print(layer.shape)
             layer = tf.layers.conv2d(layer, self.note_range, (1, 1), padding="valid", activation=None)
             print(layer.shape)
@@ -108,7 +121,7 @@ def create_model(self, args):
                     print("add hconv2d {} filters, {} kernel".format(args.filters, kernel))
                     layer = common.hconv2d(
                         layer, args.filters, kernel,
-                        args.undertone_stacking, args.overtone_stacking, 60, # bins per semitone
+                        args.undertone_stacking, args.overtone_stacking, 60, # bins per octave
                         padding="same", activation=None, dilation_rate=(dil, 1), use_bias=bool(args.use_bias))
                     print(layer.shape)
                 else:
@@ -121,7 +134,7 @@ def create_model(self, args):
                 layer = common.regularization(layer, args, training=self.is_training)
                 layer = activation(layer)
 
-                if (not args.faster_hcnn) and (args.undertone_stacking > 0 or args.overtone_stacking > 1):
+                if (not args.faster_hcnn) and (args.undertone_stacking > 0 or args.overtone_stacking > 1) and i < args.stacking_until:
                     print("harmonic stacking {} --> ".format(layer.shape), end="")
                     layer = common.harmonic_stacking(self, layer, args.undertone_stacking, args.overtone_stacking, bin_count=360, bins_per_semitone=5)
                     print(layer.shape)
@@ -139,30 +152,42 @@ def create_model(self, args):
                             layer = tf.concat([skip, layer], -1)
                     skip = layer
 
-            layer = tf.layers.average_pooling2d(layer, (1, 5), (1, 5))
+            if args.last_pooling == "globalavg":
+                layer = tf.layers.average_pooling2d(layer, (1, 360), (1, 360))
+            if args.last_pooling == "avg":
+                layer = tf.layers.average_pooling2d(layer, (1, 5), (1, 5))
+            if args.last_pooling == "max":
+                layer = tf.layers.max_pooling2d(layer, (1, 5), (1, 5))
+            if args.last_pooling == "maxoct":
+                layer = tf.layers.max_pooling2d(layer, (1, 60), (1, 60))
 
             if args.faster_hcnn:
                 print("add last hconv2d {} filters, {} kernel".format(args.filters, kernel))
                 layer = common.hconv2d(
-                    layer, 1, args.last_conv_kernel,
+                    layer, args.note_range, args.last_conv_kernel,
                     args.undertone_stacking, args.overtone_stacking, 12,  # bins per semitone
-                    padding="same", activation=None, use_bias=bool(args.use_bias))
+                    padding="valid", activation=None, use_bias=bool(args.use_bias))
                 print(layer.shape)
             else:
                 print("add last conv2d {} filters, {} kernel".format(args.filters, kernel))
                 layer = tf.layers.conv2d(
-                    layer, 1, args.last_conv_kernel, (1, 1),
-                    padding="same", activation=None, use_bias=bool(args.use_bias))
+                    layer, args.note_range, args.last_conv_kernel, (1, 1),
+                    padding="valid", activation=None, use_bias=bool(args.use_bias))
                 print(layer.shape)
 
 
             if actual_context_size > 0:
                 layer = layer[:, actual_context_size:-actual_context_size, :, :]
 
-            self.note_logits = tf.squeeze(layer, -1)
+            self.note_logits = tf.squeeze(layer, 2)
             print("note_logits shape", self.note_logits.shape)
 
-    self.loss = common.loss_mir(self, args)
+    if args.class_weighting:
+        weights = self.class_weights
+    else:
+        weights = None
+
+    self.loss = common.loss_mir(self, args, weights=weights)
     self.est_notes = tf.constant(0) # placeholder, we compute est_notes on cpu
     self.training = common.optimizer(self, args)
 
@@ -180,16 +205,22 @@ def parse_args(argv):
     parser.add_argument("--cut_context", type=int, help="Cut unnecessary context, doesn't work with dilations!")
     # model
     parser.add_argument("--architecture", type=str, help="Model architecture")
+    parser.add_argument("--faster_hcnn", type=int, help="HCNN implementation")
+    parser.add_argument("--use_bias", type=int, help="use bias in conv2d")
+    parser.add_argument("--class_weighting", type=int, help="use class weighting")
+
     parser.add_argument("--filters", type=int, help="Filters in convolutions")
     parser.add_argument("--stacks", type=int, help="Stacks")
     parser.add_argument("--conv_range", type=int, help="Stack kernel size in frequency axis")
     parser.add_argument("--undertone_stacking", type=int, help="Undertone stacking in the model")
     parser.add_argument("--overtone_stacking", type=int, help="Overtone stacking in the model")
+    parser.add_argument("--stacking_until", type=int, help="Harmonic stacking in the model until Nth layer")
     parser.add_argument("--activation", type=str, help="Activation function for the convolution stack")
     # context
     parser.add_argument("--conv_ctx", nargs="+", type=int, help="Stack kernel sizes in time axis")
     parser.add_argument("--dilations", nargs="+", type=int, help="Dilation rate for the convolutions")
     parser.add_argument("--last_conv_kernel", nargs=2, type=int)
+    parser.add_argument("--last_pooling", type=str)
     # residual
     parser.add_argument("--residual_hop", type=int, help="Size of one block around which there is a residual connection")
     parser.add_argument("--residual_end", type=int, help="No residual connection in last N layers")
@@ -219,15 +250,20 @@ def parse_args(argv):
         "spectrogram_overtone_stacking": 5,
         "cut_context": 1,
         "architecture": "baseline",
+        "faster_hcnn": 0,
+        "use_bias": 1,
+        "class_weighting": 1,
         "filters": 12,
         "stacks": 6,
         "conv_range": 3,
         "undertone_stacking": 1,
         "overtone_stacking": 3,
+        "stacking_until": 999,
         "activation": "relu",
-        "conv_ctx": [3, 3, 1],
+        "conv_ctx": [1],
         "dilations": [1],
-        "last_conv_kernel": [1, 10],
+        "last_conv_kernel": [1, 72],
+        "last_pooling": "avg",
         "residual_hop": 1,
         "residual_end": 0,
         "residual_op": "add",
@@ -296,20 +332,34 @@ def construct(args):
         def dataset_transform_train(tf_dataset, dataset):
             return tf_dataset.shuffle(10**5).map(dataset.prepare_example, num_parallel_calls=args.threads).batch(args.batch_size).prefetch(10)
         small_hooks = [MetricsHook_mir(instrument_mappings), VisualOutputHook_mir()]
-        valid_hooks = [MetricsHook_mir(instrument_mappings), SaveBestModelHook(args.logdir, "F1")]
-        test_hooks = [MetricsHook_mir(instrument_mappings, write_summaries=True, print_detailed=True, split="test")]
+        valid_hooks = [AdjustVoicingHook_mir(), MetricsHook_mir(instrument_mappings), SaveBestModelHook(args.logdir, "micro f1"), BatchOutputWriterHook_mir(split="valid", output_reference=True)]
+        test_hooks = [MetricsHook_mir(instrument_mappings, write_summaries=True, print_detailed=True, split="test"), BatchOutputWriterHook_mir(output_reference=True)]
+        if args.save_salience:
+            test_hooks.append(SaveSaliencesHook())
         print("preparing datasets...")
         train_dataset, test_datasets, validation_datasets = common.prepare_datasets(
             args.datasets, args, preload_fn, dataset_transform, dataset_transform_train, 
             small_hooks_mf0=small_hooks, valid_hooks=valid_hooks, test_hooks=test_hooks)
         print("done preparing datasets")
 
+        all_notes = train_dataset.all_notes()
+        notes_count = np.zeros((args.note_range,))
+        for note_frame in all_notes:
+            for note in note_frame:
+                notes_count[int(note)] += 1
+        
+        class_priors = notes_count / np.sum(notes_count)
+        mean_prior = 1 / args.note_range
+        class_weights = mean_prior / class_priors * (1 - class_priors) / (1 - mean_prior)
+        class_weights = class_weights ** 0.3
+        print("weights", class_weights)
+
         # if not args.voicing:
         #     for vd in validation_datasets:
         #         if not vd.name.startswith("small_"):
         #             vd.hooks.append(AdjustVoicingHook())
 
-        network.construct(args, create_model, train_dataset.dataset.output_types, train_dataset.dataset.output_shapes, spectrogram_info=spectrogram_info)
+        network.construct(args, create_model, train_dataset.dataset.output_types, train_dataset.dataset.output_shapes, spectrogram_info=spectrogram_info, class_weights=class_weights)
 
     return network, train_dataset, validation_datasets, test_datasets
 

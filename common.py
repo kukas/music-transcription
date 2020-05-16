@@ -57,6 +57,7 @@ def common_arguments_parser():
     parser.add_argument("--iterations", default=None, type=int, help="Number of iterations to train for.")
     # input
     parser.add_argument("--datasets", nargs="+", type=str, help="Datasets to use for this experiment")
+    parser.add_argument("--optimizer", type=str, help="Optimizer")
     parser.add_argument("--batch_size", type=int, help="Number of examples in one batch")
     parser.add_argument("--batch_size_evaluation", default=64, type=int, help="Number of examples in one batch for evaluation")
     # input window shape
@@ -84,6 +85,7 @@ def common_arguments_parser():
 
 def argument_defaults(args, defaults):
     arg_defaults = {
+        "optimizer": "adam",
         "batch_size": 32,
         "annotations_per_window": 1,
         "hop_size": None,
@@ -214,9 +216,6 @@ def loss_mf0(self, args):
 
             note_loss = tf.losses.sigmoid_cross_entropy(ref_probabilities, self.note_logits)  # , weights=voicing_weights)
 
-            tf.summary.image("training/ref_probabilities", tf.expand_dims(ref_probabilities, -1), max_outputs=1)
-            tf.summary.image("training/note_logits", tf.expand_dims(self.note_logits, -1), max_outputs=1)
-
             loss_names.append("note_loss")
             losses.append(note_loss)
 
@@ -228,7 +227,7 @@ def loss_mf0(self, args):
 
     return tf.math.add_n(losses)
 
-def loss_mir(self, args):
+def loss_mir(self, args, weights=None):
     # multi-instrument recognition
     with tf.name_scope("losses"):
         annotations = self.annotations
@@ -241,7 +240,16 @@ def loss_mir(self, args):
             ref_probabilities = tf.cast(tf.greater(ref_probabilities, 0), tf.float32)
             print("ref_probabilities.shape", ref_probabilities.shape)
 
-            note_loss = tf.losses.sigmoid_cross_entropy(ref_probabilities, self.note_logits)
+            if weights is not None:
+                batch_size = tf.shape(self.annotations)[0]
+                weights = tf.reshape(
+                    tf.tile(weights, [batch_size * self.annotations_per_window]), 
+                    [batch_size, self.annotations_per_window, self.note_range])
+                print("weights.shape", weights.shape)
+            else:
+                weights = 1.0
+
+            note_loss = tf.losses.sigmoid_cross_entropy(ref_probabilities, self.note_logits, weights=weights)
 
             tf.summary.image("training/ref_probabilities", tf.expand_dims(ref_probabilities, -1), max_outputs=1)
             tf.summary.image("training/note_logits", tf.expand_dims(self.note_logits, -1), max_outputs=1)
@@ -289,7 +297,13 @@ def optimizer(self, args):
                 learning_rate = tf.train.exponential_decay(args.learning_rate, self.global_step, args.learning_rate_decay_steps, args.learning_rate_decay, True)
                 tf.summary.scalar("metrics/train/learning_rate", learning_rate)
 
-            optimizer = tf.train.AdamOptimizer(learning_rate)
+            if args.optimizer == "adam":
+                optimizer = tf.train.AdamOptimizer(learning_rate)
+            if args.optimizer == "rmsprop":
+                optimizer = tf.train.RMSPropOptimizer(learning_rate, momentum=0.9)
+            if args.optimizer == "momentum":
+                optimizer = tf.train.MomentumOptimizer(learning_rate, momentum=0.9)
+
             # Get the gradient pairs (Tensor, Variable)
             grads_and_vars = optimizer.compute_gradients(self.loss)
             if args.clip_gradients > 0:
@@ -559,8 +573,8 @@ def prepare_datasets(which, args, preload_fn, dataset_transform, dataset_transfo
         ]
 
         test_datasets += [
+            # VD(datasets.musicnet_mir.prefix, musicnet_validation_dataset, 0, valid_hooks),
             VD(datasets.musicnet_mir.prefix, musicnet_test_dataset, 0, test_hooks),
-            # VD(datasets.musicnet_mir.prefix, musicnet_validation_dataset, 0, test_hooks),
         ]
 
         train_data += musicnet_train
@@ -722,7 +736,7 @@ def main(argv, construct, parse_args):
             print("{} evaluation".format(vd.name))
             network.evaluate(vd)
 
-        print(evaluation.summary("test", os.path.join(args.logdir, args.checkpoint+"-f0-outputs")))
+        # print(evaluation.summary("test", os.path.join(args.logdir, args.checkpoint+"-f0-outputs")))
 
     if args.predict:
         for vd in test_datasets:
