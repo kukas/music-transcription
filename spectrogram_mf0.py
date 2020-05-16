@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 
 import datasets
-from model import NetworkMultif0, AdjustVoicingHook, MetricsHook_mf0, SaveBestModelHook, CSVOutputWriterHook, VisualOutputHook_mf0
+from model import NetworkMultif0, AdjustVoicingHook, MetricsHook_mf0, SaveBestModelHook, CSVBatchOutputWriterHook_mf0, VisualOutputHook_mf0
 from collections import namedtuple
 import sys
 import common
@@ -69,13 +69,16 @@ def create_model(self, args):
                     layer = common.hconv2d(
                         layer, args.filters, kernel,
                         args.undertone_stacking, args.overtone_stacking, 60, # bins per semitone
-                        padding="same", activation=None, dilation_rate=(dil, 1))
+                        padding="same", activation=None, dilation_rate=(dil, 1), use_bias=bool(args.use_bias))
                     print(layer.shape)
                 else:
                     print("add conv2d {} filters, {} kernel".format(args.filters, kernel))
-                    layer = tf.layers.conv2d(layer, args.filters, kernel, (1, 1), "same", activation=None, dilation_rate=(dil, 1))
+                    layer = tf.layers.conv2d(
+                        layer, args.filters, kernel, (1, 1), 
+                        padding="same", activation=None, dilation_rate=(dil, 1), use_bias=bool(args.use_bias))
                     print(layer.shape)
 
+                layer = common.regularization(layer, args, training=self.is_training)
                 layer = activation(layer)
 
                 if (not args.faster_hcnn) and (args.undertone_stacking > 0 or args.overtone_stacking > 1):
@@ -83,7 +86,6 @@ def create_model(self, args):
                     layer = common.harmonic_stacking(self, layer, args.undertone_stacking, args.overtone_stacking, bin_count=360, bins_per_semitone=5)
                     print(layer.shape)
 
-                layer = common.regularization(layer, args, training=self.is_training)
 
                 if i < args.stacks - args.residual_end and i % args.residual_hop == 0:
                     if skip is None:
@@ -99,7 +101,21 @@ def create_model(self, args):
 
             layer = tf.layers.average_pooling2d(layer, (1, 5), (1, 5))
 
-            layer = tf.layers.conv2d(layer, 1, args.last_conv_kernel, (1, 1), "same", activation=None)
+            if args.faster_hcnn:
+                print("add last hconv2d {} filters, {} kernel".format(args.filters, kernel))
+                layer = common.hconv2d(
+                    layer, 1, args.last_conv_kernel,
+                    args.undertone_stacking, args.overtone_stacking, 12,  # bins per semitone
+                    padding="same", activation=None, use_bias=bool(args.use_bias))
+                print(layer.shape)
+            else:
+                print("add last conv2d {} filters, {} kernel".format(args.filters, kernel))
+                layer = tf.layers.conv2d(
+                    layer, 1, args.last_conv_kernel, (1, 1),
+                    padding="same", activation=None, use_bias=bool(args.use_bias))
+                print(layer.shape)
+
+
             if actual_context_size > 0:
                 layer = layer[:, actual_context_size:-actual_context_size, :, :]
 
@@ -132,6 +148,7 @@ def parse_args(argv):
     # model
     parser.add_argument("--architecture", type=str, help="Model architecture")
     parser.add_argument("--faster_hcnn", type=int, help="HCNN implementation")
+    parser.add_argument("--use_bias", type=int, help="use bias in conv2d")
     parser.add_argument("--filters", type=int, help="Filters in convolutions")
     parser.add_argument("--stacks", type=int, help="Stacks")
     parser.add_argument("--conv_range", type=int, help="Stack kernel size in frequency axis")
@@ -180,6 +197,7 @@ def parse_args(argv):
         "cut_context": 1,
         "architecture": "deep_hcnn",
         "faster_hcnn": 0,
+        "use_bias": 1,
         "filters": 12,
         "stacks": 6,
         "conv_range": 3,
@@ -232,7 +250,8 @@ def construct(args):
             return tf_dataset.shuffle(10**5).map(dataset.prepare_example, num_parallel_calls=args.threads).batch(args.batch_size).prefetch(10)
         small_hooks = [MetricsHook_mf0(), VisualOutputHook_mf0()]
         valid_hooks = [MetricsHook_mf0(), SaveBestModelHook(args.logdir, "Accuracy")]
-        test_hooks = [MetricsHook_mf0(write_summaries=True, print_detailed=False, split="train")]
+        test_hooks = [MetricsHook_mf0(write_summaries=True, print_detailed=False, split="test"), CSVBatchOutputWriterHook_mf0(output_reference=True)]
+
         print("preparing datasets...")
         train_dataset, test_datasets, validation_datasets = common.prepare_datasets(
             args.datasets, args, preload_fn, dataset_transform, dataset_transform_train, 
