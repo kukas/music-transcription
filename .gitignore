@@ -4,4 +4,6 @@ __pycache__/
 processed/
 cached/
 models/
+models*/
 data/*/
+figures/
