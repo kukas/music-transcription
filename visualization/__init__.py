@@ -58,12 +58,12 @@ def draw_notes_on_ax(ref, est, ax, onlyvoiced=False, timescale=1, ms=1):
     indices_ref_rest, ref_rest = flatten(ref, timescale)
 
     style = "."
-    ax.plot(indices_ref_rest, ref_rest, style, color="#161925", label="Reference", markersize=ms)
-    ax.plot(indices_correct, correct, style, color="#02C39A", label="Výška správná; Detekce správná pozitivní", markersize=ms)
+    ax.plot(indices_ref_rest, ref_rest, style, color="#161925", label="Reference", markersize=ms, marker="|")
+    ax.plot(indices_correct, correct, style, color="#02C39A", label="Výška správná; Detekce správná pozitivní", markersize=ms, marker="|")
     if not onlyvoiced:
-        ax.plot(indices_unvoiced_incorrect, unvoiced_incorrect, style, color="#a0247b", label="Výška nedefinovaná; Detekce nesprávná pozitivní", markersize=ms)
-    ax.plot(indices_incorrect_chroma, incorrect_chroma, style, color="#F4A745", label="Výška nesprávná (o oktávu); Detekce správná pozitivní", markersize=ms)
-    ax.plot(indices_incorrect, incorrect, style, color="#FF4365", label="Výška nesprávná; Detekce správná pozitivní", markersize=ms)
+        ax.plot(indices_unvoiced_incorrect, unvoiced_incorrect, style, color="#a0247b", label="Výška nedefinovaná; Detekce nesprávná pozitivní", markersize=ms, marker="|")
+    ax.plot(indices_incorrect_chroma, incorrect_chroma, style, color="#F4A745", label="Výška nesprávná (o oktávu); Detekce správná pozitivní", markersize=ms, marker="|")
+    ax.plot(indices_incorrect, incorrect, style, color="#FF4365", label="Výška nesprávná; Detekce správná pozitivní", markersize=ms, marker="|")
 
     if indices_correct_negative:
         ax.plot(indices_correct_negative, correct_negative, style, color="#D1F4EC", label="Výška správná; Detekce nesprávná negativní", markersize=1)
