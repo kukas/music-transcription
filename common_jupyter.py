@@ -8,6 +8,17 @@ import datasets
 import re
 from glob import glob
 
+import tensorflow as tf
+from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+
+def get_param_num(results_dir):
+    tensorboard_dir = results_dir + "/../"
+    event_acc = EventAccumulator(tensorboard_dir)
+    event_acc.Reload()
+    tensor_event = event_acc.Tensors("model_info")
+    tensor_np = tf.make_ndarray(tensor_event[0].tensor_proto)
+    return int(tensor_np[0, 1])
+
 def load_data(paths, attributes=None, attr_names=None):
     data = []
     for attrs, path in zip(attributes, paths):
@@ -19,9 +30,10 @@ def load_data(paths, attributes=None, attr_names=None):
     return pd.concat(data)
 
 
-def ld(attr_names, attr_types, regex, experiments_dir, verbose=False):
-    experiments_paths = get_paths(experiments_dir)
+def ld(attr_names, attr_types, regex, experiments_dir, verbose=False, results_dir="model-f0-outputs"):
+    experiments_paths = get_paths(experiments_dir, results_dir)
     paths = list(filter(lambda x: re.search(regex, x), experiments_paths))
+    assert len(paths) != 0
     attributes = get_attrs_from_paths(regex, attr_types, paths)
     if verbose:
         a = map(str, zip([p.split("/")[-2] for p in paths], attributes))
@@ -143,6 +155,6 @@ def plot_note_hist(method, path, path2, est_suffix=".csv"):
     sns.distplot(np.concatenate(diffs), kde=False, bins=bins)
 
 
-def get_paths(path):
-    paths = sorted(glob(path+"/*/model-f0-outputs") + glob(path+"/*/*/model-f0-outputs"))
+def get_paths(path, results_dir="model-f0-outputs"):
+    paths = sorted(glob(path+"/*/"+results_dir) + glob(path+"/*/*/"+results_dir))
     return list(filter(lambda x: "koš" not in x, paths))  # vyhoď modely v koši
