@@ -1,3 +1,6 @@
+from numba import jit
+from .network_multiir import _process_fetched_values
+
 import tensorflow as tf
 import pandas
 import mir_eval
@@ -63,9 +66,9 @@ class EvaluationHook_mf0:
 class EvaluationHook_mir(EvaluationHook_mf0):
     def _title(self, ctx):
         return "F1: {:.3f}, Pr: {:.3f}, Re: {:.3f}, Loss {:.4f}".format(
-            ctx.metrics['F1'],
-            ctx.metrics['Precision'],
-            ctx.metrics['Recall'],
+            ctx.metrics['micro f1'],
+            ctx.metrics['micro precision'],
+            ctx.metrics['micro recall'],
             ctx.metrics['Loss'],
         )
 
@@ -146,6 +149,65 @@ class CSVOutputWriterHook(EvaluationHook):
 
     def after_run(self, ctx, vd, additional):
         print("csv outputs written in {:.2f}s".format(self.write_estimations_timer))
+
+
+class CSVBatchOutputWriterHook_mf0(EvaluationHook):
+    def __init__(self, split="test", output_reference=False):
+        self.split = split
+        self.output_reference = output_reference
+
+    def before_predict(self, ctx, vd):
+        self.est_dir = os.path.join(ctx.logdir, ctx.args.checkpoint+"-mf0-outputs", vd.name+"-"+self.split+"-outputs")
+        os.makedirs(self.est_dir, exist_ok=True)
+        if self.output_reference:
+            self.ref_dir = os.path.join(ctx.logdir, ctx.args.checkpoint+"-mf0-outputs", vd.name+"-"+self.split+"-outputs", "reference")
+            os.makedirs(self.ref_dir, exist_ok=True)
+
+        return []
+
+    def every_aa(self, ctx, vd, aa, est):
+        est_time, est_notes, est_freqs = est
+        output_file = os.path.join(self.est_dir, aa.audio.filename+".csv")
+        with open(output_file, 'w') as f:
+            writer = csv.writer(f)
+            for t, fs in zip(est_time, est_freqs):
+                writer.writerow([t]+list(fs))
+
+        if self.output_reference:
+            ref_time = aa.annotation.times
+            ref_freqs = aa.annotation.freqs_mf0
+            output_file_ref = os.path.join(self.ref_dir, aa.audio.filename+".csv")
+            with open(output_file_ref, 'w') as f:
+                writer = csv.writer(f)
+                for t, fs in zip(ref_time, ref_freqs):
+                    writer.writerow([t]+list(fs))
+
+
+class BatchOutputWriterHook_mir(EvaluationHook):
+    def __init__(self, split="test", output_reference=False):
+        self.split = split
+        self.output_reference = output_reference
+
+    def before_predict(self, ctx, vd):
+        self.est_dir = os.path.join(ctx.logdir, ctx.args.checkpoint+"-mir-outputs", vd.name+"-"+self.split+"-outputs")
+        os.makedirs(self.est_dir, exist_ok=True)
+        if self.output_reference:
+            self.ref_dir = os.path.join(ctx.logdir, ctx.args.checkpoint+"-mir-outputs", vd.name+"-"+self.split+"-outputs", "reference")
+            os.makedirs(self.ref_dir, exist_ok=True)
+
+        return []
+
+    def every_aa(self, ctx, vd, aa, est):
+        est_time, classes, est_matrix = est
+        ref_matrix = aa.annotation.ref_matrix(ctx.note_range, 0)
+
+        output_file = os.path.join(self.est_dir, aa.audio.filename+".npy")
+        np.save(output_file, est_matrix)
+
+        if self.output_reference:
+            output_file_ref = os.path.join(self.ref_dir, aa.audio.filename+".npy")
+            np.save(output_file_ref, ref_matrix)
+
 
 class MetricsHook(EvaluationHook):
     def __init__(self, write_summaries=True, print_detailed=False, split="valid"):
@@ -228,31 +290,69 @@ class MetricsHook_mir(EvaluationHook_mir, MetricsHook):
         for _, im in instrument_mappings.items():
             i = im["id"]
             self.target_names[i] = im["instrument"]
-
+        
         super().__init__(**kwds)
+
+    def before_predict(self, ctx, vd):
+        self.est_matrices = []
+        self.ref_matrices = []
+
+        return super().before_predict(ctx, vd)
 
     def every_aa(self, ctx, vd, aa, est):
         est_time, classes, est_matrix = est
         ref_time = aa.annotation.times
         ref_matrix = aa.annotation.ref_matrix(ctx.note_range, 0)
+        self.est_matrices.append(est_matrix)
+        self.ref_matrices.append(ref_matrix)
         # print("est", est_matrix, "\nref:", ref_matrix, "\n\n")
 
-        assert ref_matrix.shape == est_matrix.shape
-        report = sklearn.metrics.classification_report(est_matrix, ref_matrix, target_names=self.target_names, output_dict=True)
-        # print(report)
+        # assert ref_matrix.shape == est_matrix.shape
+        # report = sklearn.metrics.classification_report(ref_matrix, est_matrix, target_names=self.target_names, output_dict=True)
+        # print(aa.audio.uid)
+        # print(sklearn.metrics.classification_report(ref_matrix, est_matrix, target_names=self.target_names))
+        # # print(report)
+        # metrics = {
+        #     "F1": report["micro avg"]["f1-score"],
+        #     "Precision": report["micro avg"]["precision"],
+        #     "Recall": report["micro avg"]["recall"],
+        # }
+
+        # for target in self.target_names:
+        #     if report[target]["support"] == 0:
+        #         continue
+        #     metrics["Class "+target+" F1"] = report[target]["f1-score"]
+        #     metrics["Class "+target+" Recall"] = report[target]["recall"]
+        #     metrics["Class "+target+" Precision"] = report[target]["precision"]
+
+        # self.all_metrics.append(metrics)
+    def after_run(self, ctx, vd, additional):
+        ref_matrix = np.concatenate(self.ref_matrices)
+        est_matrix = np.concatenate(self.est_matrices)
+        print("ref_matrix.shape", ref_matrix.shape)
+        print("est_matrix.shape", est_matrix.shape)
+        report = sklearn.metrics.classification_report(ref_matrix, est_matrix, target_names=self.target_names, output_dict=True)
+        print(sklearn.metrics.classification_report(ref_matrix, est_matrix, target_names=self.target_names))
+
         metrics = {
-            "F1": report["micro avg"]["f1-score"],
-            "Precision": report["micro avg"]["precision"],
-            "Recall": report["micro avg"]["recall"],
+            "micro f1": report["micro avg"]["f1-score"],
+            "micro precision": report["micro avg"]["precision"],
+            "micro recall": report["micro avg"]["recall"],
+            "macro f1": report["macro avg"]["f1-score"],
+            "macro precision": report["macro avg"]["precision"],
+            "macro recall": report["macro avg"]["recall"],
         }
 
         for target in self.target_names:
-            metrics["Class "+target+" F1"] = report[target]["f1-score"]
-            metrics["Class "+target+" Recall"] = report[target]["recall"]
-            metrics["Class "+target+" Precision"] = report[target]["precision"]
+            if report[target]["support"] == 0:
+                continue
+            metrics["class "+target+" f1"] = report[target]["f1-score"]
+            metrics["class "+target+" recall"] = report[target]["recall"]
+            metrics["class "+target+" precision"] = report[target]["precision"]
 
         self.all_metrics.append(metrics)
-
+        return super().after_run(ctx, vd, additional)
+    
 class SaveSaliencesHook(EvaluationHook):
     def before_predict(self, ctx, vd):
         return [ctx.note_probabilities]
@@ -329,3 +429,87 @@ class AdjustVoicingHook(EvaluationHook):
             est_voicing = est_notes_confidence > best_threshold
             new_est_freq = np.abs(est_freq) * (est_voicing*2-1)
             estimations[uid] = (est_time, est_note, new_est_freq)
+
+
+@jit(nopython=True)
+def _find_thresholds(note_probs, ref_matrix):
+    best_thresholds = np.full((note_probs.shape[1],), 0.5)
+    best_results = np.zeros((note_probs.shape[1],))
+
+    for threshold in thresholds:
+        threshold_results = []
+        est_matrix = note_probs > threshold
+        # print("===", threshold, "===")
+        tp = np.sum(ref_matrix & est_matrix, axis=0)
+        fp = np.sum((~ref_matrix) & est_matrix, axis=0)
+        fn = np.sum(ref_matrix & (~est_matrix), axis=0)
+
+        p = tp/(tp + fp)
+        r = tp/(tp + fn)
+        f1 = (2 * p * r) / (p + r)
+
+        for i, best_result in enumerate(best_results):
+            res = f1[i]
+            if res > best_result:
+                best_results[i] = res
+                best_thresholds[i] = threshold
+
+    return best_thresholds, best_results
+
+class AdjustVoicingHook_mir(EvaluationHook):
+    def before_predict(self, ctx, vd):
+        return [ctx.note_probabilities]
+
+    def after_predict(self, ctx, vd, estimations, additional):
+        thresholds = np.arange(0.0, 1.0, 0.05)
+        note_probs_list = []
+        ref_matrix_list = []
+
+        for uid, note_probs in additional[ctx.note_probabilities].items():
+            aa = vd.dataset.get_annotated_audio_by_uid(uid)
+            ref_matrix = aa.annotation.ref_matrix(ctx.note_range, 0)
+            note_probs_list.append(note_probs)
+            ref_matrix_list.append(ref_matrix)
+        
+        note_probs = np.concatenate(note_probs_list)
+        ref_matrix = np.concatenate(ref_matrix_list)
+
+        # print(note_probs.shape, ref_matrix.shape)
+        best_thresholds = np.full((note_probs.shape[1],), 0.5)
+        best_results = np.zeros((note_probs.shape[1],))
+
+
+        for threshold in thresholds:
+            threshold_results = []
+            est_matrix = note_probs > threshold
+            # print("===", threshold, "===")
+            tp = np.sum(ref_matrix & est_matrix, axis=0)
+            fp = np.sum((~ref_matrix) & est_matrix, axis=0)
+            fn = np.sum(ref_matrix & (~est_matrix), axis=0)
+
+            p = tp/(tp + fp)
+            r = tp/(tp + fn)
+            f1 = (2 * p * r) / (p + r)
+
+            # print(f1)
+
+            # results = sklearn.metrics.classification_report(ref_matrix, est_matrix, output_dict=False)
+            # print(results)
+            for i, best_result in enumerate(best_results):
+                res = f1[i]
+                if res > best_result:
+                    best_results[i] = res
+                    best_thresholds[i] = threshold
+            
+            # print(best_thresholds)
+            # print(best_results)
+            # results.append(np.mean(threshold_results))
+
+        print("Voicing thresholds: ", best_thresholds, ", best f1 scores: ", best_results)
+        ctx.thresholds = best_thresholds
+
+        for uid, (est_time, classes, est_matrix) in estimations.items():
+            note_probs = additional[ctx.note_probabilities][uid]
+            new_est_matrix = note_probs > best_thresholds
+            new_classes = _process_fetched_values(note_probs, best_thresholds)
+            estimations[uid] = (est_time, new_classes, new_est_matrix)

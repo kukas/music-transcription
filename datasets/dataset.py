@@ -108,6 +108,12 @@ class AADataset:
         samples = [aa.audio.samples for aa in self._annotated_audios]
         return np.concatenate(samples)
 
+    def all_notes(self):
+        notes = []
+        for aa in self._annotated_audios:
+            notes += aa.annotation.notes_mf0
+        return notes
+
     def _create_example(self, aa_index, annotation_start):
         aa = self._annotated_audios[aa_index]
 

@@ -150,9 +150,12 @@ class Annotation:
                     # note_value = label['note_value']
                     if annot == "instrument":
                         instrument_midi = int(label['instrument'])
-                        instrument_id = instrument_mappings[instrument_midi]["id"]
-                        
-                        tree[start_time:end_time] = instrument_id
+                        if instrument_midi in instrument_mappings:
+                            instrument_id = instrument_mappings[instrument_midi]["id"]
+                            
+                            tree[start_time:end_time] = instrument_id
+                        else:
+                            print("skipping note with instrument", instrument_midi)
 
             max_time = max(tree)[1]
             times = np.arange(0, max_time, hop_samples/44100)
