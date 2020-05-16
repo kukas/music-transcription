@@ -1,4 +1,4 @@
-# Audio Melody Extraction
+# Better Framewise Learning over Spectrograms with Harmonic Convolutions
 
 A small python framework for conducting deep learning experiments for framewise MIR tasks. The aim of this project is to create a set of utility functions and classes that make the experiments easier to implement and replicate. A sample set of experiments is included. 
 
@@ -21,7 +21,7 @@ Important: if you own a GPU compatible with Tensorflow, install `tensorflow-gpu`
 
 ## Usage
 
-There are several possible uses of this github project. You can use the pretrained models for melody extraction on a specified input song. You can also check and replicate the results we reported in our paper and my [bachelor thesis on Melody Extraction](http://hdl.handle.net/20.500.11956/108322). Finally you can use our framework to train your own models.
+You can also check and replicate the results we reported in our paper.
 
 ### Replicate our experiments
 
@@ -37,12 +37,11 @@ We also used MAPS and MusicNet (zip package). Extract them to `data/` directory.
 
 For running the training and evaluation see the scripts `run_*.sh`.
 
-
 ## Dataset splits
 
-As noted above, dataset splits used in the MIREX extended abstract and my bachelor thesis are located in `data/`. MedleyDB and MDB-melody-synth split is in file `mdb_ismir_split.json`, WJazzD split is in `wjazzd_split.json`.
+As noted above, dataset splits used are located in `data/`. MedleyDB and MDB-melody-synth split is in file `mdb_ismir_split.json`, MusicNet split is in `musicnet_my_split.json`, MAPS split is in `maps_kelz_split.json`.
 
-## Features
+## Features of the framework
 - Dataset handling
     - loading common AME datasets (MedleyDB, MDB-melody-synth, ORCHSET, ...)
         - Some AMT datasets are also supported (MDB-mf0-synth)
