@@ -1,4 +1,4 @@
-tensorflow==1.13.1
+tensorflow==2.5.1
 mir-eval==0.5
 resampy==0.2.1
 SoundFile==0.10.2
